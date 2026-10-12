@@ -97,7 +97,14 @@ h1::before {
 header:hover h1::before { transform: rotate(16deg); }
 h1 span { color: var(--accent); text-shadow: .045em .045em 0 var(--pop); }
 .dek { margin: 12px 0 0; color: var(--muted); max-width: 60ch; text-wrap: pretty; }
-.dek strong { color: var(--ink); background: linear-gradient(transparent 58%, color-mix(in srgb, var(--pop) 55%, transparent) 58%); padding-inline: 2px; }
+/* The regulation name sits in a soft pill with a sparkle, like the site's other chips. */
+.dek strong {
+  display: inline-block; white-space: nowrap; color: var(--accent); font-weight: 800; line-height: 1.35;
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel));
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px; padding: 0 10px 0 8px;
+}
+.dek strong::before { content: "✦"; color: var(--pink); margin-right: 5px; font-size: .85em; }
 .ladder-meta {
   display: flex; gap: 18px 22px; flex-wrap: wrap;
   background: var(--panel); border: 2px solid var(--edge); border-radius: var(--r-card);
