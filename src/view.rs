@@ -555,11 +555,13 @@ fn ladder(catalog: &Catalog, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                                                 style=[picked.map(|s| format!("--slot:var({s})"))]
                                                 title=(if picked.is_some() { format!("Remove {} from the comparison", m.name) } else { format!("Add {} to the comparison", m.name) }) {
                                                 span.box aria-hidden="true" {}
+                                                (mon_icon(dex, &m.name))
                                                 (m.name)
                                             }
                                         } @else {
                                             span.pick.disabled title="The comparison is full. Remove a Pokémon first." {
                                                 span.box aria-hidden="true" {}
+                                                (mon_icon(dex, &m.name))
                                                 (m.name)
                                             }
                                         }
@@ -626,6 +628,7 @@ fn scout(catalog: &Catalog, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &Vi
                     @for m in &picked {
                         span.chip-sel style=(slot_style(vs, &m.name)) {
                             span.dot {}
+                            (mon_icon(dex, &m.name))
                             (m.name)
                             a.remove href=(vs.toggled(&m.name).href()) aria-label={ "Remove " (m.name) } { "×" }
                         }
@@ -706,7 +709,7 @@ fn card(m: &Mon, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &ViewState) ->
     html! {
         article.card style=(slot_style(vs, &m.name)) {
             div.card-head {
-                div.nm { span.dot {} (m.name) }
+                div.nm { span.dot {} (mon_icon(dex, &m.name)) (m.name) }
                 (type_chips(dex.entry(&m.name)))
                 div.big-usage {
                     strong.num { (format!("{:.1}%", m.usage)) }
@@ -729,9 +732,9 @@ fn card(m: &Mon, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &ViewState) ->
                     @for t in &m.teammates {
                         @let in_ladder = meta.mons.iter().any(|x| &x.name == t);
                         @if in_ladder && !full && vs.slot(t).is_none() {
-                            a.mate href=(vs.toggled(t).href()) title={ "Add " (t) " to the comparison" } { (t) }
+                            a.mate href=(vs.toggled(t).href()) title={ "Add " (t) " to the comparison" } { (mon_icon(dex, t)) (t) }
                         } @else {
-                            span.mate.static { (t) }
+                            span.mate.static { (mon_icon(dex, t)) (t) }
                         }
                     }
                 }
@@ -758,6 +761,15 @@ pub(crate) fn share_list(label: &str, rows: &[Share], n: usize) -> Markup {
 }
 
 // ---------- small pieces ----------
+
+/// A Pokémon's mini sprite from Showdown's icon sheet. Decorative: the name always sits
+/// beside it.
+pub(crate) fn mon_icon(dex: &Dex, name: &str) -> Markup {
+    let (x, y) = dex.icon_offset(name);
+    html! {
+        span.mon-icon aria-hidden="true" style=(format!("background-position:-{x}px -{y}px")) {}
+    }
+}
 
 pub(crate) fn type_chips(entry: Option<&DexEntry>) -> Markup {
     html! {

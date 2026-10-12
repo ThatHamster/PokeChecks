@@ -11,8 +11,8 @@ use crate::team::{
     STAT_LABELS, Set, TEAM_SIZE,
 };
 use crate::view::{
-    Page, Theme, ViewState, filter_form, filtered, month_name, shell, site_footer, site_header,
-    type_chips,
+    Page, Theme, ViewState, filter_form, filtered, mon_icon, month_name, shell, site_footer,
+    site_header, type_chips,
 };
 
 /// A set edit that broke a rule. The page shows the message and keeps what was typed.
@@ -58,7 +58,7 @@ pub fn builder_page(
         html! {
             (site_header(catalog, format, meta, vs, theme, dek))
             (save_message(msg))
-            (saved_panel(catalog, vs, saved))
+            (saved_panel(catalog, dex, vs, saved))
             div.bench {
                 (picker(meta, dex, vs, &members))
                 (team_panel(catalog, format, meta, dex, vs, &sets, error))
@@ -81,7 +81,7 @@ fn save_message(msg: Option<&str>) -> Markup {
 }
 
 /// Saving the current team, and the browser's saved teams.
-fn saved_panel(catalog: &Catalog, vs: &ViewState, saved: &[SavedTeam]) -> Markup {
+fn saved_panel(catalog: &Catalog, dex: &Dex, vs: &ViewState, saved: &[SavedTeam]) -> Markup {
     let back = vs.href();
     let default_name = vs
         .team
@@ -120,6 +120,7 @@ fn saved_panel(catalog: &Catalog, vs: &ViewState, saved: &[SavedTeam]) -> Markup
                                 div.saved-info {
                                     strong { (t.name) }
                                     @if let Some(l) = fmt_label { span.muted.small { " · " (l) } }
+                                    span.saved-icons { @for n in t.names() { (mon_icon(dex, n)) } }
                                     span.muted.small.block { (t.names().join(", ")) }
                                 }
                                 div.saved-actions {
@@ -163,7 +164,7 @@ fn picker(meta: &Meta, dex: &Dex, vs: &ViewState, members: &[&Mon]) -> Markup {
                     ul.suggest {
                         @for (m, score) in &suggested {
                             li {
-                                div.mon-cell { span.strong { (m.name) } (type_chips(dex.entry(&m.name))) }
+                                div.mon-cell { span.mon-name { (mon_icon(dex, &m.name)) span.strong { (m.name) } } (type_chips(dex.entry(&m.name))) }
                                 span.num.muted {
                                     @if members.is_empty() { (format!("{:.1}% usage", m.usage)) }
                                     @else { (format!("{:.0}%", score * 100.0)) }
@@ -189,7 +190,7 @@ fn picker(meta: &Meta, dex: &Dex, vs: &ViewState, members: &[&Mon]) -> Markup {
                             @let state = team::blocked(members, &m.name, dex);
                             tr.on[state == Some(Blocked::OnTeam)] {
                                 td.r.rank.num { (m.rank) }
-                                td { div.mon-cell { span.strong { (m.name) } (type_chips(dex.entry(&m.name))) } }
+                                td { div.mon-cell { span.mon-name { (mon_icon(dex, &m.name)) span.strong { (m.name) } } (type_chips(dex.entry(&m.name))) } }
                                 td.usage-cell {
                                     div.ubar {
                                         span.track { i style=(format!("width:{:.1}%", m.usage / max_usage * 100.0)) {} }
@@ -293,7 +294,7 @@ fn member_card(
         article.card.member {
             div.card-head {
                 div.member-top {
-                    span.nm { (m.name) }
+                    span.nm { (mon_icon(dex, &m.name)) (m.name) }
                     a.remove href=(vs.team_toggled(&m.name).href()) aria-label={ "Remove " (m.name) " from your team" } { "×" }
                 }
                 div.member-sub {
@@ -505,7 +506,7 @@ fn matchup_table(sets: &[Set], dex: &Dex) -> Markup {
                     thead {
                         tr {
                             th { span.th-label { "Attack" } }
-                            @for s in sets { th.c { span.th-label title=(s.mon.name) { (short_name(&s.mon.name)) } } }
+                            @for s in sets { th.c { span.th-label.th-mon title=(s.mon.name) { (mon_icon(dex, &s.mon.name)) (short_name(&s.mon.name)) } } }
                             th.c { span.th-label { "Weak" } }
                             th.c { span.th-label { "Resist" } }
                         }
@@ -542,7 +543,7 @@ fn speed_list(sets: &[Set], dex: &Dex) -> Markup {
             ul.speeds {
                 @for (s, spe) in &by_speed {
                     li {
-                        span { (s.mon.name) }
+                        span.mon-name { (mon_icon(dex, &s.mon.name)) (s.mon.name) }
                         span.track { i style=(format!("width:{:.1}%", f64::from(*spe) / f64::from(fastest) * 100.0)) {} }
                         span.num.strong { (spe) }
                     }
@@ -599,7 +600,7 @@ pub(crate) fn newcomer_note() -> Markup {
 }
 
 /// The game plan, folded away so the card stays short.
-pub(crate) fn plan_section(plan: &GamePlan) -> Markup {
+pub(crate) fn plan_section(plan: &GamePlan, dex: &Dex) -> Markup {
     html! {
         details.plan {
             summary {
@@ -614,7 +615,7 @@ pub(crate) fn plan_section(plan: &GamePlan) -> Markup {
                 h4 { "What each Pokémon does" }
                 dl.plan-roles {
                     @for (name, roles) in &plan.roles {
-                        dt { (name) }
+                        dt { (mon_icon(dex, name)) (name) }
                         dd {
                             ul {
                                 @for r in roles {
@@ -651,7 +652,7 @@ fn meta_team_card(t: &team::MetaTeam, dex: &Dex, vs: &ViewState, doubles: bool) 
                 @for s in &sets {
                     li {
                         div.mon-cell {
-                            span.strong { (s.mon.name) }
+                            span.mon-name { (mon_icon(dex, &s.mon.name)) span.strong { (s.mon.name) } }
                             (type_chips(dex.entry(&s.mon.name)))
                         }
                         span.item.muted { (s.item.as_deref().unwrap_or("")) }
@@ -672,7 +673,7 @@ fn meta_team_card(t: &team::MetaTeam, dex: &Dex, vs: &ViewState, doubles: bool) 
                     strong.num { (format!("{:.1}%", avg_usage)) }
                 }
             }
-            (plan_section(&plan))
+            (plan_section(&plan, dex))
             div.team-actions {
                 a.go href=(vs.with_team(names).on_page(Page::Builder).href()) { "Open in team builder" }
                 details {

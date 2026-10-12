@@ -494,6 +494,26 @@ label.check input { width: auto; margin: 0; accent-color: var(--accent); }
 .team-actions summary:hover { color: var(--ink); }
 .team-actions .paste { margin-top: 8px; }
 
+/* Pokémon mini sprites from Showdown's icon sheet (40×30 each); views set the position.
+   Negative margins trim the sheet's empty padding so rows don't grow. */
+.mon-icon { display: inline-block; flex: none; width: 40px; height: 30px; margin: -8px -2px -6px -4px; vertical-align: middle; background: url("https://play.pokemonshowdown.com/sprites/pokemonicons-sheet.png?v22") no-repeat; image-rendering: pixelated; }
+.mon-name { display: inline-flex; align-items: center; gap: 6px; }
+.pick .mon-icon { margin-right: -6px; }
+.mon-cell .pick ~ .types { padding-left: 62px; }
+.mon-cell .mon-name ~ .types { padding-left: 40px; }
+.card-head .nm .mon-icon, .member-top .nm .mon-icon { margin-right: 0; }
+.member-top .nm { display: inline-flex; align-items: center; gap: 6px; }
+.chip-sel .mon-icon, .mate .mon-icon { margin: -9px -4px -8px -8px; }
+.mate { display: inline-flex; align-items: center; gap: 4px; }
+.matchups th .th-mon { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.th-mon .mon-icon { margin: -4px -4px -2px; }
+th .th-mon-inline { display: flex; align-items: center; gap: 6px; }
+.plan-roles dt { display: flex; align-items: center; gap: 6px; }
+.saved-icons { display: flex; flex-wrap: wrap; gap: 0 2px; margin: 8px 0 4px 4px; }
+.calc-mon { display: flex; align-items: center; gap: 8px; }
+.calc-mon .mon-icon { margin: -4px 0; }
+.side-name strong { overflow-wrap: anywhere; }
+
 footer { font-size: 12.5px; color: var(--muted); max-width: 90ch; padding-top: 16px; border-top: 3px dotted var(--line); }
 footer a { color: var(--accent); font-weight: 700; }
 

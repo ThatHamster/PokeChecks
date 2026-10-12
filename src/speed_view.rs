@@ -12,7 +12,7 @@ use crate::smogon::{Catalog, FormatInfo, LADDER_SIZE, Meta, Mon};
 use crate::team::{
     self, Custom, MAX_POINTS_PER_STAT, Member, NATURES, TEAM_SIZE, level50_stat, nature_label,
 };
-use crate::view::{Page, Theme, ViewState, shell, site_footer, site_header, type_chips};
+use crate::view::{Page, Theme, ViewState, mon_icon, shell, site_footer, site_header, type_chips};
 
 /// Abilities that double Speed under the right conditions.
 const SPEED_ABILITIES: [&str; 6] = [
@@ -413,7 +413,7 @@ pub fn speed_page(
                     div.section {
                         div.speed-summary {
                             div {
-                                span.label { (state.name) }
+                                span.label.mon-name { (mon_icon(dex, &state.name)) (state.name) }
                                 strong.num { (you) }
                                 span.muted.small { " Speed · " (state.nature) ", " (state.points) " points" }
                             }
@@ -437,11 +437,11 @@ pub fn speed_page(
                             }
                             tbody {
                                 @for (i, (r, v)) in rows.iter().zip(&verdicts).enumerate() {
-                                    @if i == your_slot { (you_row(state, you)) }
+                                    @if i == your_slot { (you_row(state, you, dex)) }
                                     tr {
                                         td {
                                             div.mon-cell {
-                                                a.strong href=(state.href_for(vs, &r.mon.name)) { (r.mon.name) }
+                                                a.strong.mon-name href=(state.href_for(vs, &r.mon.name)) { (mon_icon(dex, &r.mon.name)) (r.mon.name) }
                                                 (type_chips(dex.entry(&r.mon.name)))
                                             }
                                         }
@@ -456,7 +456,7 @@ pub fn speed_page(
                                         td { span class={ "verdict " (v.class()) } { (v.label()) } }
                                     }
                                 }
-                                @if your_slot == rows.len() { (you_row(state, you)) }
+                                @if your_slot == rows.len() { (you_row(state, you, dex)) }
                             }
                         }
                     }
@@ -468,10 +468,10 @@ pub fn speed_page(
     )
 }
 
-fn you_row(state: &SpeedState, you: u32) -> Markup {
+fn you_row(state: &SpeedState, you: u32, dex: &Dex) -> Markup {
     html! {
         tr.you-row {
-            td { strong { "You: " (state.name) } }
+            td { span.mon-name { (mon_icon(dex, &state.name)) strong { "You: " (state.name) } } }
             td.r.num.strong { (you) }
             td.hide-sm {}
             td.small.muted { "Your Speed with the options on the left" }
@@ -916,8 +916,8 @@ pub fn match_page(
                 section.pane.match-setup aria-labelledby="setup-h" {
                     div.pane-head { h2 #setup-h { "Match setup" } }
                     (field_controls(state, vs))
-                    (my_team_controls(state, vs, meta, saved, format))
-                    (foe_controls(state, vs, meta))
+                    (my_team_controls(state, vs, meta, dex, saved, format))
+                    (foe_controls(state, vs, meta, dex))
                 }
                 section #order .pane.scout aria-labelledby="order-h" {
                     div.pane-head {
@@ -942,6 +942,7 @@ pub fn match_page(
                                     div.runner-main {
                                         div.runner-name {
                                             span class={ "side-chip " (if r.side == Side::Mine { "mine" } else { "foe" }) } { (if r.side == Side::Mine { "You" } else { "Opp" }) }
+                                            (mon_icon(dex, &r.name))
                                             strong { (r.name) }
                                             (type_chips(dex.entry(&r.name)))
                                         }
@@ -1023,6 +1024,7 @@ fn my_team_controls(
     state: &MatchState,
     vs: &ViewState,
     meta: &Meta,
+    dex: &Dex,
     saved: &[SavedTeam],
     format: &FormatInfo,
 ) -> Markup {
@@ -1075,7 +1077,7 @@ fn my_team_controls(
                     @for (i, (set, mods)) in sets.iter().zip(&state.mine).enumerate() {
                         li {
                             div.side-name {
-                                strong { (set.mon.name) }
+                                span.mon-name { (mon_icon(dex, &set.mon.name)) strong { (set.mon.name) } }
                                 span.muted.small.block {
                                     (set.nature.as_deref().unwrap_or("Hardy")) ", " (set.points.map_or(0, |p| p[5])) " Spe pts"
                                     @if set.item.as_deref() == Some("Choice Scarf") { ", Scarf" }
@@ -1098,7 +1100,7 @@ fn my_team_controls(
     }
 }
 
-fn foe_controls(state: &MatchState, vs: &ViewState, meta: &Meta) -> Markup {
+fn foe_controls(state: &MatchState, vs: &ViewState, meta: &Meta, dex: &Dex) -> Markup {
     html! {
         div.section {
             h3.small-h { "Opponent’s team" }
@@ -1125,7 +1127,7 @@ fn foe_controls(state: &MatchState, vs: &ViewState, meta: &Meta) -> Markup {
                         @let ability = meta.mons.iter().find(|m| m.name == foe.name).and_then(|m| m.abilities.first()).map(|a| a.name.as_str());
                         li {
                             div.side-name {
-                                strong { (foe.name) }
+                                span.mon-name { (mon_icon(dex, &foe.name)) strong { (foe.name) } }
                                 @if let Some(a) = ability { span.muted.small.block { (a) } }
                             }
                             div.side-actions {

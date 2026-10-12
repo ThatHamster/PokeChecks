@@ -7,6 +7,8 @@ use regex::Regex;
 use serde_json::Value;
 
 const SHOWDOWN_DATA: &str = "https://play.pokemonshowdown.com/data/";
+/// Holds `BattlePokemonIconIndexes`, the sprite sheet positions of forms and Megas.
+const SHOWDOWN_ICON_INDEXES: &str = "https://play.pokemonshowdown.com/js/battle-dex-data.js";
 
 /// Showdown's ID format: lowercase ASCII letters and digits only.
 pub fn to_id(s: &str) -> String {
@@ -31,6 +33,8 @@ pub struct DexEntry {
     pub required_item: Option<String>,
     /// For Low Kick, Grass Knot, Heavy Slam and Heat Crash.
     pub weight_kg: f32,
+    /// National Dex number, which is also the base form's place on the icon sheet.
+    pub num: i32,
 }
 
 impl DexEntry {
@@ -81,6 +85,8 @@ pub struct Dex {
     /// Move, item and ability IDs mapped to display names.
     names: HashMap<String, String>,
     moves: HashMap<String, MoveData>,
+    /// Icon sheet positions for forms whose icon isn't at their Dex number.
+    icon_indexes: HashMap<String, u16>,
 }
 
 impl Dex {
@@ -107,6 +113,14 @@ impl Dex {
         }
         parse_js_names(&items, &mut names);
         parse_js_names(&abilities, &mut names);
+        // Icons are decoration, so a failed download only costs form-specific icons.
+        let icon_indexes = match fetch_url(http, SHOWDOWN_ICON_INDEXES).await {
+            Ok(src) => parse_icon_indexes(&src),
+            Err(e) => {
+                tracing::warn!(error = %e, "couldn't load Showdown icon indexes");
+                HashMap::new()
+            }
+        };
 
         tracing::info!(
             pokemon = entries.len(),
@@ -117,6 +131,7 @@ impl Dex {
             entries,
             names,
             moves: move_data,
+            icon_indexes,
         })
     }
 
@@ -151,6 +166,22 @@ impl Dex {
         entry.name.clone()
     }
 
+    /// Where a Pokémon's icon sits on Showdown's mini icon sheet (40×30 icons, 12 to a row,
+    /// linked from `app.css`), as a CSS background offset `(x, y)`.
+    /// Unknown names get Showdown's blank icon (index 0), like Showdown itself does.
+    pub fn icon_offset(&self, name: &str) -> (u32, u32) {
+        let id = to_id(name);
+        let index = self.icon_indexes.get(&id).copied().unwrap_or_else(|| {
+            self.entries
+                .get(&id)
+                .and_then(|e| u16::try_from(e.num).ok())
+                .filter(|&n| n <= 1025)
+                .unwrap_or(0)
+        });
+        let index = u32::from(index);
+        ((index % 12) * 40, (index / 12) * 30)
+    }
+
     /// Turns a stats-file ID like `heavydutyboots` into `Heavy-Duty Boots`.
     pub fn display_name(&self, id: &str) -> String {
         self.names.get(id).cloned().unwrap_or_else(|| id.to_owned())
@@ -158,8 +189,11 @@ impl Dex {
 }
 
 async fn fetch_text(http: &reqwest::Client, file: &str) -> Result<String> {
-    let url = format!("{SHOWDOWN_DATA}{file}");
-    http.get(&url)
+    fetch_url(http, &format!("{SHOWDOWN_DATA}{file}")).await
+}
+
+async fn fetch_url(http: &reqwest::Client, url: &str) -> Result<String> {
+    http.get(url)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
@@ -220,6 +254,7 @@ fn parse_pokedex(v: &Value) -> HashMap<String, DexEntry> {
                 .and_then(Value::as_str)
                 .map(str::to_owned);
             let weight_kg = e.get("weightkg").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            let num = e.get("num").and_then(Value::as_i64).unwrap_or(0) as i32;
             Some((
                 id.clone(),
                 DexEntry {
@@ -230,8 +265,29 @@ fn parse_pokedex(v: &Value) -> HashMap<String, DexEntry> {
                     abilities,
                     required_item,
                     weight_kg,
+                    num,
                 },
             ))
+        })
+        .collect()
+}
+
+/// Reads `BattlePokemonIconIndexes={egg:1032+1,pikachubelle:1032+2,...}` from Showdown's
+/// client code. Values are sums of integers.
+fn parse_icon_indexes(src: &str) -> HashMap<String, u16> {
+    let Some(start) = src.find("BattlePokemonIconIndexes={") else {
+        return HashMap::new();
+    };
+    let body = &src[start + "BattlePokemonIconIndexes={".len()..];
+    let body = &body[..body.find('}').unwrap_or(body.len())];
+    body.split(',')
+        .filter_map(|pair| {
+            let (key, value) = pair.split_once(':')?;
+            let sum = value
+                .split('+')
+                .map(|n| n.trim().parse::<u16>().ok())
+                .sum::<Option<u16>>()?;
+            Some((key.trim().trim_matches(['"', '\'']).to_owned(), sum))
         })
         .collect()
 }
@@ -318,5 +374,23 @@ mod tests {
         parse_js_names(src, &mut names);
         assert_eq!(names["intimidate"], "Intimidate");
         assert_eq!(names["heavydutyboots"], "Heavy-Duty Boots");
+    }
+
+    #[test]
+    fn reads_icon_indexes() {
+        let src = "var BattlePokemonIconIndexes={
+
+egg:1032+1,
+clefablemega:1320+84,
+obliteryx:1560+81
+};
+var BattlePokemonIconIndexesLeft={
+pikachu:1
+};";
+        let indexes = parse_icon_indexes(src);
+        assert_eq!(indexes.len(), 3);
+        assert_eq!(indexes["egg"], 1033);
+        assert_eq!(indexes["clefablemega"], 1404);
+        assert_eq!(indexes["obliteryx"], 1641);
     }
 }

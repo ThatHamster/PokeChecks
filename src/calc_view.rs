@@ -12,7 +12,7 @@ use crate::team::{
     points_line,
 };
 use crate::team_view::option_list;
-use crate::view::{Page, Theme, ViewState, shell, site_footer, site_header, type_chips};
+use crate::view::{Page, Theme, ViewState, mon_icon, shell, site_footer, site_header, type_chips};
 
 /// Calculator fields from the query string. `a_` is the attacker, `d_` the defender.
 /// `*_prev` records which Pokémon the fields belong to, so picking a new Pokémon resets
@@ -487,7 +487,7 @@ fn results(state: &CalcState, att_mon: &Mon, dex: &Dex, vs: &ViewState, doubles:
                     table.calc-moves {
                         thead {
                             tr {
-                                th { span.th-label { (state.attacker.name) "’s moves" } }
+                                th { span.th-label.th-mon-inline { (mon_icon(dex, &state.attacker.name)) (state.attacker.name) "’s moves" } }
                                 th { span.th-label { "Type" } }
                                 th.r { span.th-label { "Power" } }
                                 th.r { span.th-label { "Damage" } }
@@ -750,7 +750,10 @@ fn side_fields(
                 }
             }
         }
-        (type_chips(dex.entry(&mon.name)))
+        div.calc-mon {
+            (mon_icon(dex, &mon.name))
+            (type_chips(dex.entry(&mon.name)))
+        }
         div.field {
             label for=(id("item")) { "Item" }
             select #(id("item")) name=(id("item")) {

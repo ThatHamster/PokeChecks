@@ -7,7 +7,7 @@ use crate::gameplan::{self, PlanMon};
 use crate::smogon::{Catalog, FormatInfo, Kind, Meta};
 use crate::team_view::{newcomer_note, plan_section};
 use crate::tournaments::{self, EntryTeam, Event, Tournaments};
-use crate::view::{Page, Theme, ViewState, shell, site_footer, site_header, type_chips};
+use crate::view::{Page, Theme, ViewState, mon_icon, shell, site_footer, site_header, type_chips};
 
 /// What the page could load: events, a reason there are none for this format, or an error.
 pub enum Source<'a> {
@@ -131,7 +131,7 @@ fn entry_card(t: &EntryTeam, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                     @let form = dex.battle_form(&m.id, m.item.as_deref());
                     li {
                         div.mon-cell {
-                            span.strong { (form) }
+                            span.mon-name { (mon_icon(dex, &form)) span.strong { (form) } }
                             (type_chips(dex.entry(&form)))
                         }
                         span.item.muted { (m.item.as_deref().unwrap_or("")) }
@@ -153,7 +153,7 @@ fn entry_card(t: &EntryTeam, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                     }
                 }
             }
-            (plan_section(&plan))
+            (plan_section(&plan, dex))
             div.team-actions {
                 @if members.is_empty() {
                     span.muted.small { "None of these Pokémon are in this month’s usage data." }
