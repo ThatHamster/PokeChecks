@@ -28,6 +28,14 @@ The pages share one URL, so links keep the format, comparison and team:
 - **Meta teams:** teams assembled from teammate statistics. Each starts from a popular
   Pokémon and adds whichever Pokémon most often appear alongside the ones already picked,
   without mixing weathers or terrains. They show common cores, not specific players' teams.
+- **Damage calc:** level 50 damage between any two Pokémon in the format, using Champions
+  stats and Pokémon Showdown's Gen 9 damage formula and rounding. Both sides start on their
+  most common set; items, abilities, natures, stat points, stat stages, weather, terrain,
+  critical hits, screens, Helping Hand and doubles spread damage can all be changed. Shows
+  the damage range, every roll and the KO chance, plus the attacker's other common moves.
+- **Speed tiers:** where a Pokémon's Speed sits against the top 80, at their common
+  spreads and their maximum, with Choice Scarf, Tailwind, stat stages, paralysis,
+  speed-doubling abilities, opponents' Tailwind or Icy Wind, and Trick Room.
 - **Tournament teams:** top 4 open team lists from the largest recent events for the current
   regulation on [Limitless](https://play.limitlesstcg.com/tournaments?game=VGC), refreshed
   every three hours. Any team opens in the builder; team lists have no stat points, so the
