@@ -11,15 +11,15 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::{Query, State};
-use axum::http::{StatusCode, header};
-use axum::response::{Html, IntoResponse, Response};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLock};
 
 use dex::Dex;
 use smogon::{Catalog, Meta};
-use view::{SortKey, ViewState};
+use view::{SortKey, Theme, ViewState};
 
 /// How long to trust the list of months and regulations before asking Smogon again.
 const CATALOG_TTL: Duration = Duration::from_secs(6 * 60 * 60);
@@ -77,18 +77,63 @@ struct Params {
     pick: Option<String>,
 }
 
-async fn index(State(state): State<Arc<AppState>>, Query(p): Query<Params>) -> Response {
-    match render_index(&state, p).await {
+async fn index(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(p): Query<Params>,
+) -> Response {
+    let theme = headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .map(Theme::from_cookie_header)
+        .unwrap_or_default();
+    match render_index(&state, p, theme).await {
         Ok(html) => Html(html).into_response(),
         Err(err) => {
             tracing::error!("{err:#}");
-            let page = view::error_page(&format!("{err:#}"));
+            let page = view::error_page(&format!("{err:#}"), theme);
             (StatusCode::BAD_GATEWAY, Html(page.into_string())).into_response()
         }
     }
 }
 
-async fn render_index(state: &AppState, p: Params) -> Result<String> {
+#[derive(Deserialize)]
+struct ThemeParams {
+    mode: Option<String>,
+    back: Option<String>,
+}
+
+/// Stores the visitor's theme in a cookie, then returns them to the page they were on.
+async fn set_theme(Query(p): Query<ThemeParams>) -> Response {
+    let theme = p.mode.as_deref().and_then(Theme::parse).unwrap_or_default();
+    let cookie = match theme {
+        // "System" is the default, so clear the cookie rather than storing it.
+        Theme::System => "theme=; Path=/; Max-Age=0; SameSite=Lax".to_owned(),
+        _ => format!(
+            "theme={}; Path=/; Max-Age=31536000; SameSite=Lax",
+            theme.as_str()
+        ),
+    };
+    let back = safe_back(p.back.as_deref());
+    ([(header::SET_COOKIE, cookie)], Redirect::to(back)).into_response()
+}
+
+/// Only redirect to a path on this site, never to another host.
+fn safe_back(back: Option<&str>) -> &str {
+    match back {
+        Some(b)
+            if b.starts_with('/')
+                && !b.starts_with("//")
+                && !b.contains('\\')
+                && !b.chars().any(char::is_control) =>
+        {
+            b
+        }
+        _ => "/",
+    }
+}
+
+async fn render_index(state: &AppState, p: Params, theme: Theme) -> Result<String> {
     let catalog = state.catalog().await?;
     let format = catalog.format(p.fmt.as_deref());
     let cut = p
@@ -143,7 +188,7 @@ async fn render_index(state: &AppState, p: Params) -> Result<String> {
         ty: p.ty.unwrap_or_default(),
         picks,
     };
-    Ok(view::page(&catalog, format, &meta, &state.dex, &vs).into_string())
+    Ok(view::page(&catalog, format, &meta, &state.dex, &vs, theme).into_string())
 }
 
 async fn stylesheet() -> impl IntoResponse {
@@ -191,6 +236,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(index))
         .route("/app.css", get(stylesheet))
+        .route("/theme", get(set_theme))
         .with_state(state);
 
     let port: u16 = std::env::var("PORT")
@@ -208,4 +254,22 @@ async fn main() -> Result<()> {
         })
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_back;
+
+    #[test]
+    fn theme_redirect_stays_on_site() {
+        assert_eq!(
+            safe_back(Some("/?fmt=bss&pick=Garchomp")),
+            "/?fmt=bss&pick=Garchomp"
+        );
+        assert_eq!(safe_back(Some("//evil.example")), "/");
+        assert_eq!(safe_back(Some("/\\evil.example")), "/");
+        assert_eq!(safe_back(Some("https://evil.example")), "/");
+        assert_eq!(safe_back(Some("/\r\nSet-Cookie: x")), "/");
+        assert_eq!(safe_back(None), "/");
+    }
 }

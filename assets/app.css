@@ -24,13 +24,21 @@
   --f-data: "JetBrains Mono", ui-monospace, Consolas, monospace;
   color-scheme: light;
 }
+/* Dark palette. With no saved choice (no data-theme) it follows the device setting;
+   the theme switch sets data-theme="light" or "dark" on <html> to override it. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0d1118; --panel: #151b25; --sunk: #10151d; --ink: #e6ebf3; --muted: #95a1b4; --line: #263042;
     --accent: #7d94ff; --up: #3cc793; --down: #ff7b70;
     --s1: #7d94ff; --s2: #f59a45; --s3: #e56ac3; --s4: #3cc7a8;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1118; --panel: #151b25; --sunk: #10151d; --ink: #e6ebf3; --muted: #95a1b4; --line: #263042;
+  --accent: #7d94ff; --up: #3cc793; --down: #ff7b70;
+  --s1: #7d94ff; --s2: #f59a45; --s3: #e56ac3; --s4: #3cc7a8;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }

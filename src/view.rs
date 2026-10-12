@@ -127,16 +127,83 @@ impl ViewState {
     }
 }
 
+/// The visitor's colour theme, kept in a cookie. `System` follows the device setting.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Theme {
+    const ALL: [Theme; 3] = [Theme::System, Theme::Light, Theme::Dark];
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "system" => Self::System,
+            "light" => Self::Light,
+            "dark" => Self::Dark,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::System => "System",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+        }
+    }
+
+    /// Reads the `theme` cookie out of a raw `Cookie` header.
+    pub fn from_cookie_header(header: &str) -> Self {
+        header
+            .split(';')
+            .filter_map(|pair| pair.trim().split_once('='))
+            .find(|(name, _)| *name == "theme")
+            .and_then(|(_, value)| Self::parse(value))
+            .unwrap_or_default()
+    }
+}
+
+/// Links to `/theme`, which stores the choice and sends the visitor back to `back`.
+fn theme_switch(theme: Theme, back: &str) -> Markup {
+    html! {
+        div {
+            span.label { "Theme" }
+            nav.cutoffs aria-label="Colour theme" {
+                @for t in Theme::ALL {
+                    a.cut href={ "/theme?" (serde_urlencoded::to_string([("mode", t.as_str()), ("back", back)]).unwrap_or_default()) }
+                        aria-current=[(t == theme).then_some("true")] {
+                        (t.label())
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn page(
     catalog: &Catalog,
     format: &FormatInfo,
     meta: &Meta,
     dex: &Dex,
     vs: &ViewState,
+    theme: Theme,
 ) -> Markup {
     let regulation = &format.regulation;
     shell(
         &format!("Regulation {regulation}"),
+        theme,
         html! {
             header {
                 div {
@@ -160,6 +227,7 @@ pub fn page(
                             }
                         }
                     }
+                    (theme_switch(theme, &vs.href()))
                 }
             }
 
@@ -192,11 +260,15 @@ pub fn page(
     )
 }
 
-pub fn error_page(message: &str) -> Markup {
+pub fn error_page(message: &str, theme: Theme) -> Markup {
     shell(
         "Stats unavailable",
+        theme,
         html! {
-            header { div { h1 { "Poke" span { "Checks" } } } }
+            header {
+                div { h1 { "Poke" span { "Checks" } } }
+                div.ladder-meta { (theme_switch(theme, "/")) }
+            }
             section.pane.notice {
                 h2 { "Usage stats are unavailable right now" }
                 p { (message) }
@@ -206,10 +278,14 @@ pub fn error_page(message: &str) -> Markup {
     )
 }
 
-fn shell(subtitle: &str, body: Markup) -> Markup {
+fn shell(subtitle: &str, theme: Theme, body: Markup) -> Markup {
+    let data_theme = match theme {
+        Theme::System => None,
+        Theme::Light | Theme::Dark => Some(theme.as_str()),
+    };
     html! {
         (DOCTYPE)
-        html lang="en" {
+        html lang="en" data-theme=[data_theme] {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
@@ -217,7 +293,8 @@ fn shell(subtitle: &str, body: Markup) -> Markup {
                 link rel="preconnect" href="https://fonts.googleapis.com";
                 link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
                 link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap";
-                link rel="stylesheet" href="/app.css";
+                // The version in the URL makes browsers fetch the new stylesheet after an upgrade.
+                link rel="stylesheet" href=(concat!("/app.css?v=", env!("CARGO_PKG_VERSION")));
             }
             body { div.wrap { (body) } }
         }
@@ -595,6 +672,18 @@ fn short_month(ym: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_theme_cookie() {
+        assert_eq!(Theme::from_cookie_header("theme=dark"), Theme::Dark);
+        assert_eq!(
+            Theme::from_cookie_header("a=1; theme=light; b=2"),
+            Theme::Light
+        );
+        assert_eq!(Theme::from_cookie_header("theme=purple"), Theme::System);
+        assert_eq!(Theme::from_cookie_header("mytheme=dark"), Theme::System);
+        assert_eq!(Theme::from_cookie_header(""), Theme::System);
+    }
 
     fn state() -> ViewState {
         ViewState {

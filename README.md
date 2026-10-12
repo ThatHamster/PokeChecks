@@ -5,7 +5,8 @@ regulation that Smogon has published stats for (currently Regulation M-C) across
 VGC Best of 3 and Battle Stadium Singles.
 
 Written in Rust (edition 2024, Rust 1.99) with Axum and Maud. Pages are rendered on the
-server and need no JavaScript.
+server and need no JavaScript. A System / Light / Dark switch in the header lets each
+visitor pick a theme, remembered in a cookie; System follows the device setting.
 
 ![PokeChecks showing the VGC Regulation M-C usage ladder beside a base stat and set comparison of Rillaboom, Sneasler and Incineroar](docs/screenshot.png)
 
