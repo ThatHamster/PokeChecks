@@ -48,9 +48,23 @@ The pages share one URL, so links keep the format, comparison and team:
   every three hours. Any team opens in the builder; team lists have no stat points, so the
   builder fills them in from the most common spread for each Pokémon and nature.
 
-![The team builder with Rillaboom, Incineroar, Salamence-Mega and Sneasler, showing their common sets, teammate suggestions and type matchups](docs/team-builder.png)
+## Screenshots
+
+**Usage**
 
 ![PokeChecks showing the VGC Regulation M-C usage ladder beside a base stat and set comparison of Rillaboom, Sneasler and Incineroar](docs/screenshot.png)
+
+**Team builder**, with a saved team
+
+![The team builder with a saved team at the top, and Rillaboom, Incineroar, Sneasler and Salamence-Mega on their most common sets with level 50 stats](docs/team-builder.png)
+
+**Damage calc**
+
+![The damage calculator showing Sneasler's Close Combat against a Chople Berry Kingambit: 194–230 damage, 93.7–111.1%, a 62.5% chance to OHKO, with Sneasler's other moves below](docs/damage-calc.png)
+
+**Speed tiers**, mid-match
+
+![The speed tiers match view: rain and Tailwind on your side, your four Pokémon and four opponents sorted into one turn order, with opponents' possible Speed ranges](docs/speed-tiers.png)
 
 ## Run
 
