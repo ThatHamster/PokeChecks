@@ -350,6 +350,12 @@ pub(crate) fn site_header(
 ) -> Markup {
     html! {
         header {
+            @if let Some(url) = support_url() {
+                a.support-pill href=(url) target="_blank" rel="noopener" {
+                    span.heart aria-hidden="true" { "♥" }
+                    "Support PokeChecks"
+                }
+            }
             div {
                 h1 { "Poke" span { "Checks" } }
                 nav.pages aria-label="Pages" {
