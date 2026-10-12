@@ -29,6 +29,8 @@ pub struct DexEntry {
     pub abilities: Vec<String>,
     /// For Mega forms, the stone that triggers it, e.g. `Charizardite Y`.
     pub required_item: Option<String>,
+    /// For Low Kick, Grass Knot, Heavy Slam and Heat Crash.
+    pub weight_kg: f32,
 }
 
 impl DexEntry {
@@ -37,10 +39,48 @@ impl DexEntry {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Category {
+    Physical,
+    Special,
+    Status,
+}
+
+/// What the damage calculator needs to know about a move.
+#[derive(Clone, Debug)]
+pub struct MoveData {
+    pub name: String,
+    pub base_power: u16,
+    pub move_type: String,
+    pub category: Category,
+    /// Hits both opponents (`allAdjacentFoes`) or everyone else (`allAdjacent`).
+    pub spread: bool,
+    pub contact: bool,
+    pub punch: bool,
+    pub bite: bool,
+    pub slicing: bool,
+    pub pulse: bool,
+    pub sound: bool,
+    /// Fixed hits (Dragon Darts: 2), or the range for moves like Bullet Seed.
+    pub hits: Option<(u8, u8)>,
+    pub always_crits: bool,
+    /// Has a secondary effect, for Sheer Force.
+    pub secondary: bool,
+    /// Has recoil, for Reckless.
+    pub recoil: bool,
+    /// Body Press attacks with Defense.
+    pub uses_defense: bool,
+    /// Psyshock and similar hit the target's Defense.
+    pub targets_defense: bool,
+    /// Foul Play uses the target's Attack.
+    pub uses_target_attack: bool,
+}
+
 pub struct Dex {
     entries: HashMap<String, DexEntry>,
     /// Move, item and ability IDs mapped to display names.
     names: HashMap<String, String>,
+    moves: HashMap<String, MoveData>,
 }
 
 impl Dex {
@@ -54,10 +94,14 @@ impl Dex {
 
         let entries = parse_pokedex(&pokedex);
         let mut names = HashMap::new();
+        let mut move_data = HashMap::new();
         if let Value::Object(map) = &moves {
             for (id, m) in map {
                 if let Some(name) = m.get("name").and_then(Value::as_str) {
                     names.insert(id.clone(), name.to_owned());
+                }
+                if let Some(data) = parse_move(m) {
+                    move_data.insert(id.clone(), data);
                 }
             }
         }
@@ -69,11 +113,19 @@ impl Dex {
             names = names.len(),
             "loaded Showdown dex"
         );
-        Ok(Self { entries, names })
+        Ok(Self {
+            entries,
+            names,
+            moves: move_data,
+        })
     }
 
     pub fn entry(&self, name: &str) -> Option<&DexEntry> {
         self.entries.get(&to_id(name))
+    }
+
+    pub fn move_data(&self, name: &str) -> Option<&MoveData> {
+        self.moves.get(&to_id(name))
     }
 
     /// Base species for the duplicate-species rule; falls back to the name itself.
@@ -167,6 +219,7 @@ fn parse_pokedex(v: &Value) -> HashMap<String, DexEntry> {
                 .get("requiredItem")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
+            let weight_kg = e.get("weightkg").and_then(Value::as_f64).unwrap_or(0.0) as f32;
             Some((
                 id.clone(),
                 DexEntry {
@@ -176,10 +229,54 @@ fn parse_pokedex(v: &Value) -> HashMap<String, DexEntry> {
                     base_species,
                     abilities,
                     required_item,
+                    weight_kg,
                 },
             ))
         })
         .collect()
+}
+
+fn parse_move(m: &Value) -> Option<MoveData> {
+    let category = match m.get("category")?.as_str()? {
+        "Physical" => Category::Physical,
+        "Special" => Category::Special,
+        _ => Category::Status,
+    };
+    let flag = |f: &str| m.get("flags").and_then(|fl| fl.get(f)).is_some();
+    let target = m.get("target").and_then(Value::as_str).unwrap_or("");
+    let hits = match m.get("multihit") {
+        Some(Value::Number(n)) => n.as_u64().map(|n| (n as u8, n as u8)),
+        Some(Value::Array(a)) => match (
+            a.first().and_then(Value::as_u64),
+            a.get(1).and_then(Value::as_u64),
+        ) {
+            (Some(lo), Some(hi)) => Some((lo as u8, hi as u8)),
+            _ => None,
+        },
+        _ => None,
+    };
+    Some(MoveData {
+        name: m.get("name")?.as_str()?.to_owned(),
+        base_power: m.get("basePower").and_then(Value::as_u64).unwrap_or(0) as u16,
+        move_type: m.get("type")?.as_str()?.to_owned(),
+        category,
+        spread: matches!(target, "allAdjacentFoes" | "allAdjacent"),
+        contact: flag("contact"),
+        punch: flag("punch"),
+        bite: flag("bite"),
+        slicing: flag("slicing"),
+        pulse: flag("pulse"),
+        sound: flag("sound"),
+        hits,
+        always_crits: m.get("willCrit").and_then(Value::as_bool).unwrap_or(false),
+        secondary: m.get("secondary").is_some_and(|s| !s.is_null())
+            || m.get("secondaries").is_some_and(|s| !s.is_null()),
+        recoil: m.get("recoil").is_some_and(|r| !r.is_null()),
+        uses_defense: m.get("overrideOffensiveStat").and_then(Value::as_str) == Some("def"),
+        targets_defense: m.get("overrideDefensiveStat").and_then(Value::as_str) == Some("def"),
+        uses_target_attack: m.get("overrideOffensivePokemon").and_then(Value::as_str)
+            == Some("target"),
+    })
 }
 
 /// `items.js` and `abilities.js` are JS object literals rather than JSON, so pull out

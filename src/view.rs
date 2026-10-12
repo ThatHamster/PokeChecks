@@ -72,10 +72,19 @@ pub enum Page {
     Builder,
     Teams,
     Tournaments,
+    Calc,
+    Speed,
 }
 
 impl Page {
-    const ALL: [Page; 4] = [Page::Usage, Page::Builder, Page::Teams, Page::Tournaments];
+    const ALL: [Page; 6] = [
+        Page::Usage,
+        Page::Builder,
+        Page::Teams,
+        Page::Tournaments,
+        Page::Calc,
+        Page::Speed,
+    ];
 
     pub fn path(self) -> &'static str {
         match self {
@@ -83,6 +92,8 @@ impl Page {
             Self::Builder => "/builder",
             Self::Teams => "/teams",
             Self::Tournaments => "/tournaments",
+            Self::Calc => "/calc",
+            Self::Speed => "/speed",
         }
     }
 
@@ -92,6 +103,8 @@ impl Page {
             Self::Builder => "Team builder",
             Self::Teams => "Meta teams",
             Self::Tournaments => "Tournament teams",
+            Self::Calc => "Damage calc",
+            Self::Speed => "Speed tiers",
         }
     }
 }

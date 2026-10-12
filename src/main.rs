@@ -1,8 +1,11 @@
 //! PokeChecks: Pokémon Champions ranked usage next to base stats, served as plain HTML.
 
+mod calc;
+mod calc_view;
 mod dex;
 mod gameplan;
 mod smogon;
+mod speed_view;
 mod team;
 mod team_view;
 mod tournament_view;
@@ -219,12 +222,19 @@ fn edit_from_params(p: &Params, team: &[team::Member]) -> Option<(usize, EditOut
     ))
 }
 
+/// Page-specific query fields, on top of the shared ones in `Params`.
+enum Extra {
+    None,
+    Calc(Box<calc_view::CalcParams>),
+    Speed(Box<speed_view::SpeedParams>),
+}
+
 async fn usage_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Query(p): Query<Params>,
 ) -> Response {
-    respond(&state, Page::Usage, &headers, p).await
+    respond(&state, Page::Usage, &headers, p, Extra::None).await
 }
 
 async fn builder_page(
@@ -232,7 +242,7 @@ async fn builder_page(
     headers: HeaderMap,
     Query(p): Query<Params>,
 ) -> Response {
-    respond(&state, Page::Builder, &headers, p).await
+    respond(&state, Page::Builder, &headers, p, Extra::None).await
 }
 
 async fn teams_page(
@@ -240,7 +250,7 @@ async fn teams_page(
     headers: HeaderMap,
     Query(p): Query<Params>,
 ) -> Response {
-    respond(&state, Page::Teams, &headers, p).await
+    respond(&state, Page::Teams, &headers, p, Extra::None).await
 }
 
 async fn tournaments_page(
@@ -248,16 +258,40 @@ async fn tournaments_page(
     headers: HeaderMap,
     Query(p): Query<Params>,
 ) -> Response {
-    respond(&state, Page::Tournaments, &headers, p).await
+    respond(&state, Page::Tournaments, &headers, p, Extra::None).await
 }
 
-async fn respond(state: &AppState, page: Page, headers: &HeaderMap, p: Params) -> Response {
+async fn calc_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(p): Query<Params>,
+    Query(c): Query<calc_view::CalcParams>,
+) -> Response {
+    respond(&state, Page::Calc, &headers, p, Extra::Calc(Box::new(c))).await
+}
+
+async fn speed_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(p): Query<Params>,
+    Query(s): Query<speed_view::SpeedParams>,
+) -> Response {
+    respond(&state, Page::Speed, &headers, p, Extra::Speed(Box::new(s))).await
+}
+
+async fn respond(
+    state: &AppState,
+    page: Page,
+    headers: &HeaderMap,
+    p: Params,
+    extra: Extra,
+) -> Response {
     let theme = headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .map(Theme::from_cookie_header)
         .unwrap_or_default();
-    match render(state, page, p, theme).await {
+    match render(state, page, p, extra, theme).await {
         Ok(response) => response,
         Err(err) => {
             tracing::error!("{err:#}");
@@ -303,7 +337,13 @@ fn safe_back(back: Option<&str>) -> &str {
     }
 }
 
-async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result<Response> {
+async fn render(
+    state: &AppState,
+    page: Page,
+    p: Params,
+    extra: Extra,
+    theme: Theme,
+) -> Result<Response> {
     let catalog = state.catalog().await?;
     let format = catalog.format(p.fmt.as_deref());
     let cut = p
@@ -420,6 +460,26 @@ async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result
             };
             tournament_view::tournaments_page(&catalog, format, &meta, dex, &vs, theme, source)
         }
+        Page::Calc => {
+            let params = match extra {
+                Extra::Calc(c) => *c,
+                _ => calc_view::CalcParams::default(),
+            };
+            let calc = calc_view::CalcState::from_params(&params, &meta, dex);
+            calc_view::calc_page(&catalog, format, &meta, dex, &vs, theme, &calc)
+        }
+        Page::Speed => {
+            let params = match extra {
+                Extra::Speed(s) => *s,
+                _ => speed_view::SpeedParams::default(),
+            };
+            match speed_view::SpeedState::from_params(&params, &meta) {
+                Some(speed) => {
+                    speed_view::speed_page(&catalog, format, &meta, dex, &vs, theme, &speed)
+                }
+                None => view::error_page("This format has no usage data yet.", theme),
+            }
+        }
     };
     Ok(Html(html.into_string()).into_response())
 }
@@ -494,6 +554,8 @@ async fn main() -> Result<()> {
         .route("/builder", get(builder_page))
         .route("/teams", get(teams_page))
         .route("/tournaments", get(tournaments_page))
+        .route("/calc", get(calc_page))
+        .route("/speed", get(speed_page))
         .route("/app.css", get(stylesheet))
         .route("/theme", get(set_theme))
         .with_state(state);

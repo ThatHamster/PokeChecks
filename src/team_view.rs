@@ -392,7 +392,7 @@ fn edit_form(slot: usize, s: &Set, dex: &Dex, vs: &ViewState, draft: Option<&Cus
 }
 
 /// `<option>`s for a usage list, with the chosen value first if the ladder never used it.
-fn option_list(options: &[Share], chosen: Option<&str>) -> Markup {
+pub(crate) fn option_list(options: &[Share], chosen: Option<&str>) -> Markup {
     let missing = chosen.filter(|c| !options.iter().any(|o| o.name == *c));
     html! {
         @if let Some(c) = missing {
