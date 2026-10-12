@@ -210,6 +210,28 @@ def take_all(dt, out):
         .querySelector('details.plan').open = true""")
     shot(dt, out, "game-plan.png", 1640)
 
+    # The Ko-fi donation pop-up, when the server has a Ko-fi SUPPORT_URL.
+    go(dt, f"{BASE}/?fmt=vgc&cut=1630")
+    if not dt.js("!!document.querySelector('#support')"):
+        print("skipped support-popup.png: start the server with a Ko-fi SUPPORT_URL")
+        return
+    dt.call("Emulation.setDeviceMetricsOverride", width=WIDTH, height=900,
+            deviceScaleFactor=1, mobile=False)
+    loaded = dt.js("""new Promise(r => {
+        const frame = document.querySelector('#support iframe');
+        frame.addEventListener('load', () => r(true), {once: true});
+        document.querySelector('header .support-pill').click();
+        setTimeout(() => r(false), 20000);
+    })""")
+    if not loaded:
+        print("warning: Ko-fi's panel didn't load within 20 seconds")
+    time.sleep(3)  # Ko-fi draws its form after the frame loads
+    dt.js("document.getAnimations().forEach(a => a.finish())")
+    img = dt.call("Page.captureScreenshot", format="png")
+    with open(os.path.join(out, "support-popup.png"), "wb") as f:
+        f.write(base64.b64decode(img["data"]))
+    print("wrote", os.path.join(out, "support-popup.png"))
+
 
 def main():
     out = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "docs"))
@@ -238,6 +260,9 @@ def main():
             sys.exit("The browser didn't start its DevTools server.")
         dt = DevTools(page["webSocketDebuggerUrl"])
         dt.call("Page.enable")
+        # Ko-fi's bot protection blanks its panel for browsers that say they're headless.
+        version = dt.call("Browser.getVersion")["userAgent"].replace("HeadlessChrome", "Chrome")
+        dt.call("Network.setUserAgentOverride", userAgent=version)
         # "System" theme in dark mode, so the theme switch looks untouched.
         dt.call("Emulation.setEmulatedMedia",
                 features=[{"name": "prefers-color-scheme", "value": "dark"}])

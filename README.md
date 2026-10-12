@@ -79,6 +79,10 @@ All shown in the dark theme.
 
 ![The speed tiers match view: rain and Tailwind on your side, your four Pokémon and four opponents sorted into one turn order, with opponents' possible Speed ranges](docs/speed-tiers.png)
 
+**Donation pop-up**, opened from the "Support PokeChecks" button
+
+![The Support PokeChecks pop-up over the dimmed usage page, with Ko-fi's donation form for a one-time or monthly tip and a link to open Ko-fi in a new tab instead](docs/support-popup.png)
+
 ## Run
 
 ```
@@ -146,7 +150,7 @@ connections from other machines.
 With the server running, `python scripts/screenshots.py` retakes every image in `docs/`. It
 needs Python 3 and Chrome or Edge, with no other packages. Set `CHROME` if the browser isn't
 found. Start the server with `SUPPORT_URL=https://ko-fi.com/pokechecks` so the screenshots show
-the support button like the live site.
+the support button like the live site, and so it can capture the donation pop-up.
 
 ## Data sources
 
