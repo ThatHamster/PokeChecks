@@ -351,9 +351,17 @@ pub(crate) fn site_header(
     html! {
         header {
             @if let Some(url) = support_url() {
-                a.support-pill href=(url) target="_blank" rel="noopener" {
-                    span.heart aria-hidden="true" { "♥" }
-                    "Support PokeChecks"
+                @if let Some(name) = kofi_name(url) {
+                    button.support-pill type="button" popovertarget="support" {
+                        span.heart aria-hidden="true" { "♥" }
+                        "Support PokeChecks"
+                    }
+                    (support_panel(url, name))
+                } @else {
+                    a.support-pill href=(url) target="_blank" rel="noopener" {
+                        span.heart aria-hidden="true" { "♥" }
+                        "Support PokeChecks"
+                    }
                 }
             }
             div {
@@ -409,10 +417,43 @@ pub(crate) fn site_footer(catalog: &Catalog) -> Markup {
                 "PokeChecks is a free fan project, not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon and its names and images belong to them."
                 @if let Some(url) = support_url() {
                     " "
-                    a.support href=(url) target="_blank" rel="noopener" { "Support PokeChecks" }
+                    @if kofi_name(url).is_some() {
+                        button.support.link-button type="button" popovertarget="support" { "Support PokeChecks" }
+                    } @else {
+                        a.support href=(url) target="_blank" rel="noopener" { "Support PokeChecks" }
+                    }
                     " to help cover hosting."
                 }
             }
+        }
+    }
+}
+
+/// The page name in a Ko-fi `SUPPORT_URL` such as `https://ko-fi.com/pokechecks`, for
+/// embedding Ko-fi's donation panel. Other support pages are plain links.
+fn kofi_name(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://ko-fi.com/")
+        .or_else(|| url.strip_prefix("https://www.ko-fi.com/"))?;
+    let name = rest.split(['/', '?', '#']).next()?;
+    let valid = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    valid.then_some(name)
+}
+
+/// A popover with Ko-fi's donation panel, so visitors can donate without leaving the page.
+/// It opens with the browser's built-in popover support, no JavaScript, and the lazy iframe
+/// only loads Ko-fi once someone opens it.
+fn support_panel(url: &str, name: &str) -> Markup {
+    html! {
+        div.support-panel #support popover aria-label="Support PokeChecks" {
+            div.support-head {
+                strong { "Support PokeChecks" }
+                button.close type="button" popovertarget="support" popovertargetaction="hide" aria-label="Close" { "×" }
+            }
+            p { "PokeChecks is free to use. Donations through Ko-fi help pay for hosting. Thank you!" }
+            iframe src=(format!("https://ko-fi.com/{name}/?hidefeed=true&widget=true&embed=true&preview=true"))
+                title="Donate to PokeChecks on Ko-fi" loading="lazy" {}
+            a.new-tab href=(url) target="_blank" rel="noopener" { "Open Ko-fi in a new tab instead" }
         }
     }
 }
@@ -885,6 +926,25 @@ fn short_month(ym: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_kofi_names() {
+        assert_eq!(
+            kofi_name("https://ko-fi.com/pokechecks"),
+            Some("pokechecks")
+        );
+        assert_eq!(
+            kofi_name("https://www.ko-fi.com/poke_checks/"),
+            Some("poke_checks")
+        );
+        assert_eq!(
+            kofi_name("https://ko-fi.com/pokechecks?ref=x"),
+            Some("pokechecks")
+        );
+        assert_eq!(kofi_name("https://ko-fi.com/"), None);
+        assert_eq!(kofi_name("https://ko-fi.com/a\"onload=\"x"), None);
+        assert_eq!(kofi_name("https://github.com/sponsors/someone"), None);
+    }
 
     #[test]
     fn reads_theme_cookie() {
