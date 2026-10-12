@@ -3,7 +3,7 @@
 //! usage data so it can be tested without the network.
 
 use crate::dex::Dex;
-use crate::smogon::{Meta, Mon, Spread};
+use crate::smogon::{Meta, Mon};
 
 pub const TEAM_SIZE: usize = 6;
 /// Generated teams carry at most this many Mega Evolutions. Only one can Mega Evolve in a
@@ -186,53 +186,275 @@ pub fn is_mega(name: &str) -> bool {
     name.contains("-Mega")
 }
 
-/// One team member's most common set.
-pub struct Set<'a> {
-    pub mon: &'a Mon,
-    pub item: Option<String>,
-    pub ability: Option<String>,
-    pub moves: Vec<String>,
-    pub spread: Option<&'a Spread>,
+pub const NATURES: [&str; 25] = [
+    "Adamant", "Bashful", "Bold", "Brave", "Calm", "Careful", "Docile", "Gentle", "Hardy", "Hasty",
+    "Impish", "Jolly", "Lax", "Lonely", "Mild", "Modest", "Naive", "Naughty", "Quiet", "Quirky",
+    "Rash", "Relaxed", "Sassy", "Serious", "Timid",
+];
+
+/// `Adamant (+Atk −SpA)`, or `Hardy (neutral)`.
+pub fn nature_label(nature: &str) -> String {
+    match nature_effect(nature) {
+        Some((up, down)) => format!("{nature} (+{} −{})", STAT_LABELS[up], STAT_LABELS[down]),
+        None => format!("{nature} (neutral)"),
+    }
 }
 
-impl Set<'_> {
-    /// Level 50 Speed with the common spread, or neutral with no points when unknown.
-    pub fn speed(&self, dex: &Dex) -> u16 {
-        let base = dex.entry(&self.mon.name).map_or(0, |e| e.stats[5]);
-        match self.spread {
-            Some(s) => level50_stat(base, s.points[5], 5, &s.nature),
-            None => level50_stat(base, 0, 5, ""),
+/// Champions gives each stat 0–32 points, 66 in total.
+pub const MAX_POINTS_PER_STAT: u16 = 32;
+pub const MAX_POINTS_TOTAL: u16 = 66;
+pub const MOVE_SLOTS: usize = 4;
+
+/// A set a visitor chose for one team member, replacing its usage defaults.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Custom {
+    pub item: Option<String>,
+    pub ability: Option<String>,
+    pub nature: String,
+    pub points: [u16; 6],
+    pub moves: Vec<String>,
+}
+
+impl Custom {
+    /// URL form: `item~ability~nature~32/32/0/0/2/0~Move|Move|Move|Move`.
+    fn encode(&self) -> String {
+        let points: Vec<String> = self.points.iter().map(u16::to_string).collect();
+        [
+            self.item.clone().unwrap_or_default(),
+            self.ability.clone().unwrap_or_default(),
+            self.nature.clone(),
+            points.join("/"),
+            self.moves.join("|"),
+        ]
+        .join("~")
+    }
+
+    fn decode(fields: &[&str]) -> Option<Self> {
+        let [item, ability, nature, points, moves] = fields else {
+            return None;
+        };
+        let non_empty = |s: &str| (!s.is_empty()).then(|| s.to_owned());
+        let mut parsed = [0u16; 6];
+        let mut parts = points.split('/');
+        for p in &mut parsed {
+            *p = parts.next()?.parse().ok()?;
+        }
+        let custom = Self {
+            item: non_empty(item),
+            ability: non_empty(ability),
+            nature: (*nature).to_owned(),
+            points: parsed,
+            moves: moves
+                .split('|')
+                .filter(|m| !m.is_empty())
+                .take(MOVE_SLOTS)
+                .map(str::to_owned)
+                .collect(),
+        };
+        custom.validate().ok().map(|()| custom)
+    }
+
+    /// Checks the Champions stat point limits and that the nature exists.
+    pub fn validate(&self) -> Result<(), String> {
+        if !NATURES.contains(&self.nature.as_str()) {
+            return Err(format!("“{}” isn’t a nature.", self.nature));
+        }
+        if let Some(i) = self.points.iter().position(|p| *p > MAX_POINTS_PER_STAT) {
+            return Err(format!(
+                "{} has {} stat points; the most one stat can have is {MAX_POINTS_PER_STAT}.",
+                STAT_LABELS[i], self.points[i]
+            ));
+        }
+        let total: u16 = self.points.iter().sum();
+        if total > MAX_POINTS_TOTAL {
+            return Err(format!(
+                "These stat points add up to {total}; the limit is {MAX_POINTS_TOTAL}. Lower some stats and save again."
+            ));
+        }
+        Ok(())
+    }
+
+    /// Builds a set from a tournament team list, which has no stat points: those come from
+    /// the most common spread with the same nature, or the most common spread overall.
+    pub fn from_team_list(
+        mon: Option<&Mon>,
+        item: Option<String>,
+        ability: Option<String>,
+        nature: Option<String>,
+        moves: Vec<String>,
+    ) -> Self {
+        let spreads = mon.map(|m| m.spreads.as_slice()).unwrap_or_default();
+        let nature = nature
+            .filter(|n| NATURES.contains(&n.as_str()))
+            .or_else(|| spreads.first().map(|s| s.nature.clone()))
+            .unwrap_or_else(|| "Hardy".to_owned());
+        let points = spreads
+            .iter()
+            .find(|s| s.nature == nature)
+            .or(spreads.first())
+            .map_or([0; 6], |s| s.points);
+        Self {
+            item,
+            ability,
+            nature,
+            points,
+            moves: moves.into_iter().take(MOVE_SLOTS).collect(),
         }
     }
 }
 
-/// Picks each member's most common set. Items follow the item clause: if a teammate
-/// earlier in the list already holds an item, the next most common one is used.
-pub fn common_sets<'a>(team: &[&'a Mon]) -> Vec<Set<'a>> {
-    let mut used: Vec<String> = Vec::new();
-    team.iter()
-        .map(|m| {
-            let item = m
-                .items
-                .iter()
-                .find(|i| !used.contains(&i.name))
-                .or(m.items.first())
-                .map(|i| i.name.clone());
-            if let Some(i) = &item {
-                used.push(i.clone());
-            }
-            Set {
+/// One team slot: a Pokémon, plus the set the visitor chose if they changed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    pub name: String,
+    pub custom: Option<Custom>,
+}
+
+impl Member {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            custom: None,
+        }
+    }
+
+    /// `Name`, or `Name~item~ability~nature~points~moves` for a changed set.
+    pub fn encode(&self) -> String {
+        match &self.custom {
+            Some(c) => format!("{}~{}", self.name, c.encode()),
+            None => self.name.clone(),
+        }
+    }
+
+    /// A set that fails to parse or breaks the stat point rules falls back to the defaults.
+    pub fn decode(token: &str) -> Self {
+        let fields: Vec<&str> = token.split('~').map(str::trim).collect();
+        Self {
+            name: fields[0].to_owned(),
+            custom: fields.get(1..).and_then(Custom::decode),
+        }
+    }
+}
+
+/// One team member's set, either the visitor's or the most common one on the ladder.
+pub struct Set<'a> {
+    pub mon: &'a Mon,
+    pub item: Option<String>,
+    pub ability: Option<String>,
+    pub nature: Option<String>,
+    pub points: Option<[u16; 6]>,
+    pub moves: Vec<String>,
+    /// The visitor changed this set.
+    pub custom: bool,
+}
+
+impl Set<'_> {
+    /// Level 50 stats in HP/Atk/Def/SpA/SpD/Spe order.
+    pub fn stats(&self, dex: &Dex) -> [u16; 6] {
+        let base = dex.entry(&self.mon.name).map_or([0; 6], |e| e.stats);
+        let points = self.points.unwrap_or([0; 6]);
+        let nature = self.nature.as_deref().unwrap_or("");
+        std::array::from_fn(|i| level50_stat(base[i], points[i], i, nature))
+    }
+
+    pub fn speed(&self, dex: &Dex) -> u16 {
+        self.stats(dex)[5]
+    }
+
+    /// Share of ladder sets with exactly this nature and spread.
+    pub fn spread_pct(&self) -> Option<f64> {
+        let (nature, points) = (self.nature.as_deref()?, self.points?);
+        self.mon
+            .spreads
+            .iter()
+            .find(|s| s.nature == nature && s.points == points)
+            .map(|s| s.pct)
+    }
+
+    /// The set as editable values, for prefilling the edit form.
+    pub fn to_custom(&self) -> Custom {
+        Custom {
+            item: self.item.clone(),
+            ability: self.ability.clone(),
+            nature: self.nature.clone().unwrap_or_else(|| "Hardy".to_owned()),
+            points: self.points.unwrap_or([0; 6]),
+            moves: self.moves.clone(),
+        }
+    }
+}
+
+/// Each member's set: the visitor's where they changed it, otherwise the most common one.
+/// Default items follow the item clause, skipping items a teammate already holds.
+pub fn resolve_sets<'a>(members: &[(&'a Mon, Option<&Custom>)]) -> Vec<Set<'a>> {
+    let mut used: Vec<String> = members
+        .iter()
+        .filter_map(|(_, c)| c.and_then(|c| c.item.clone()))
+        .collect();
+    members
+        .iter()
+        .map(|(m, custom)| match custom {
+            Some(c) => Set {
                 mon: m,
-                item,
-                ability: m.abilities.first().map(|a| a.name.clone()),
-                moves: m.moves.iter().take(4).map(|s| s.name.clone()).collect(),
-                spread: m.spread.as_ref(),
+                item: c.item.clone(),
+                ability: c.ability.clone(),
+                nature: Some(c.nature.clone()),
+                points: Some(c.points),
+                moves: c.moves.clone(),
+                custom: true,
+            },
+            None => {
+                let item = m
+                    .items
+                    .iter()
+                    .find(|i| !used.contains(&i.name))
+                    .or(m.items.first())
+                    .map(|i| i.name.clone());
+                if let Some(i) = &item {
+                    used.push(i.clone());
+                }
+                let spread = m.top_spread();
+                Set {
+                    mon: m,
+                    item,
+                    ability: m.abilities.first().map(|a| a.name.clone()),
+                    nature: spread.map(|s| s.nature.clone()),
+                    points: spread.map(|s| s.points),
+                    moves: m
+                        .moves
+                        .iter()
+                        .take(MOVE_SLOTS)
+                        .map(|s| s.name.clone())
+                        .collect(),
+                    custom: false,
+                }
             }
         })
         .collect()
 }
 
-const STAT_LABELS: [&str; 6] = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"];
+/// Most common sets for a whole team.
+pub fn common_sets<'a>(team: &[&'a Mon]) -> Vec<Set<'a>> {
+    let members: Vec<(&Mon, Option<&Custom>)> = team.iter().map(|m| (*m, None)).collect();
+    resolve_sets(&members)
+}
+
+/// Items held by more than one member, which the item clause doesn't allow.
+pub fn repeated_items(sets: &[Set]) -> Vec<String> {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut repeated: Vec<String> = Vec::new();
+    for item in sets.iter().filter_map(|s| s.item.as_deref()) {
+        if seen.contains(&item) {
+            if !repeated.iter().any(|r| r == item) {
+                repeated.push(item.to_owned());
+            }
+        } else {
+            seen.push(item);
+        }
+    }
+    repeated
+}
+
+pub const STAT_LABELS: [&str; 6] = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"];
 
 /// Stat points as Showdown's `EVs` line, which Champions formats read as raw 0–32 points.
 pub fn points_line(points: &[u16; 6]) -> String {
@@ -263,17 +485,28 @@ pub fn showdown_paste(sets: &[Set], dex: &Dex) -> String {
             out.push_str(item);
         }
         out.push('\n');
-        // A Mega's listed ability is its Mega ability, which Showdown won't accept on the base form.
-        if let (Some(ability), false) = (&set.ability, mega) {
+        // Showdown checks the ability against the base form, so a Mega ability (Aerilate on
+        // Salamence-Mega) is left out and Showdown fills in the default.
+        let base_has_ability = |a: &str| {
+            dex.entry(species)
+                .is_some_and(|e| e.abilities.iter().any(|x| x == a))
+        };
+        if let Some(ability) = set
+            .ability
+            .as_deref()
+            .filter(|a| !mega || base_has_ability(a))
+        {
             out.push_str(&format!("Ability: {ability}\n"));
         }
         out.push_str("Level: 50\n");
-        if let Some(s) = set.spread {
-            let line = points_line(&s.points);
+        if let Some(points) = &set.points {
+            let line = points_line(points);
             if !line.is_empty() {
                 out.push_str(&format!("EVs: {line}\n"));
             }
-            out.push_str(&format!("{} Nature\n", s.nature));
+        }
+        if let Some(nature) = &set.nature {
+            out.push_str(&format!("{nature} Nature\n"));
         }
         for m in &set.moves {
             out.push_str(&format!("- {m}\n"));
@@ -502,7 +735,7 @@ pub fn tags(sets: &[Set]) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smogon::Share;
+    use crate::smogon::{Share, Spread};
     use std::collections::HashMap;
 
     fn types(t: &[&str]) -> Vec<String> {
@@ -581,7 +814,8 @@ mod tests {
             }],
             tera: vec![],
             teammates: vec![],
-            spread: None,
+            spreads: vec![],
+            natures: vec![],
             pair_rates: pairs
                 .iter()
                 .map(|(n, r)| ((*n).to_owned(), *r))
@@ -607,6 +841,93 @@ mod tests {
         assert!(field_compatible(&[&pelipper], &politoed));
         // Terrain and weather don't clash.
         assert!(field_compatible(&[&pelipper], &rillaboom));
+    }
+
+    fn custom() -> Custom {
+        Custom {
+            item: Some("Life Orb".into()),
+            ability: Some("Intimidate".into()),
+            nature: "Jolly".into(),
+            points: [2, 32, 0, 0, 0, 32],
+            moves: vec!["Fake Out".into(), "U-turn".into(), "Will-O-Wisp".into()],
+        }
+    }
+
+    #[test]
+    fn members_round_trip_through_the_url() {
+        let m = Member {
+            name: "Incineroar".into(),
+            custom: Some(custom()),
+        };
+        let token = m.encode();
+        assert_eq!(
+            token,
+            "Incineroar~Life Orb~Intimidate~Jolly~2/32/0/0/0/32~Fake Out|U-turn|Will-O-Wisp"
+        );
+        assert_eq!(Member::decode(&token), m);
+        assert_eq!(Member::decode("Rillaboom"), Member::new("Rillaboom"));
+    }
+
+    #[test]
+    fn bad_sets_in_the_url_fall_back_to_defaults() {
+        // 33 points in one stat, a total over 66, and a made-up nature.
+        for token in [
+            "A~~~Jolly~33/0/0/0/0/0~",
+            "A~~~Jolly~32/32/32/0/0/0~",
+            "A~~~Grumpy~0/0/0/0/0/0~",
+            "A~~~Jolly~1/2/3~",
+        ] {
+            assert_eq!(Member::decode(token).custom, None, "{token}");
+        }
+    }
+
+    #[test]
+    fn validates_stat_point_limits() {
+        let mut c = custom();
+        assert!(c.validate().is_ok());
+        c.points = [32, 32, 2, 0, 0, 1];
+        assert!(c.validate().unwrap_err().contains("67"));
+        c.points = [0, 40, 0, 0, 0, 0];
+        assert!(c.validate().unwrap_err().contains("Atk"));
+    }
+
+    #[test]
+    fn team_list_import_borrows_points_from_a_matching_spread() {
+        let mut m = mon("Incineroar", 1, &[], &[]);
+        m.spreads = vec![
+            Spread {
+                nature: "Careful".into(),
+                points: [32, 0, 14, 0, 20, 0],
+                pct: 5.0,
+            },
+            Spread {
+                nature: "Adamant".into(),
+                points: [32, 32, 0, 0, 2, 0],
+                pct: 3.0,
+            },
+        ];
+        let c = Custom::from_team_list(Some(&m), None, None, Some("Adamant".into()), vec![]);
+        assert_eq!(c.points, [32, 32, 0, 0, 2, 0]);
+        let c = Custom::from_team_list(Some(&m), None, None, Some("Timid".into()), vec![]);
+        assert_eq!(
+            (c.nature.as_str(), c.points),
+            ("Timid", [32, 0, 14, 0, 20, 0])
+        );
+    }
+
+    #[test]
+    fn custom_items_take_priority_and_repeats_are_reported() {
+        let a = mon("A", 1, &["Sitrus Berry"], &[]);
+        let b = mon("B", 2, &["Life Orb", "Sitrus Berry"], &[]);
+        // B's chosen Sitrus Berry is claimed first. A's only option is also Sitrus Berry, so
+        // A keeps it and the clash is reported instead of silently changed.
+        let mut c = custom();
+        c.item = Some("Sitrus Berry".into());
+        let sets = resolve_sets(&[(&a, None), (&b, Some(&c))]);
+        assert_eq!(sets[1].item.as_deref(), Some("Sitrus Berry"));
+        assert_eq!(repeated_items(&sets), vec!["Sitrus Berry".to_owned()]);
+        assert_eq!(nature_label("Jolly"), "Jolly (+Spe −SpA)");
+        assert_eq!(nature_label("Hardy"), "Hardy (neutral)");
     }
 
     #[test]

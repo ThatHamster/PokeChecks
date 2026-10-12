@@ -10,8 +10,12 @@ use serde::Deserialize;
 use crate::dex::Dex;
 
 const STATS_ROOT: &str = "https://www.smogon.com/stats/";
-/// How many Pokémon the usage ladder lists per format.
-const LADDER_SIZE: usize = 80;
+/// How many Pokémon the usage ladder lists per format. Everything else is still loaded, so
+/// searching and tournament teams can reach less common Pokémon.
+pub const LADDER_SIZE: usize = 80;
+/// How many options each set field offers in the team builder.
+const OPTION_LIMIT: usize = 40;
+const SPREAD_LIMIT: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -103,8 +107,10 @@ pub struct Mon {
     pub moves: Vec<Share>,
     pub tera: Vec<Share>,
     pub teammates: Vec<String>,
-    /// The most common nature and stat point spread.
-    pub spread: Option<Spread>,
+    /// Most common natures with stat point spreads, best first.
+    pub spreads: Vec<Spread>,
+    /// Share of sets using each nature, best first.
+    pub natures: Vec<Share>,
     /// For each other Pokémon on the ladder, the share of this Pokémon's teams that include it.
     pub pair_rates: HashMap<String, f64>,
 }
@@ -118,8 +124,8 @@ pub struct Spread {
 }
 
 impl Spread {
-    /// Parses Smogon's `Adamant:32/32/0/0/2/0`.
-    fn parse(s: &str) -> Option<(String, [u16; 6])> {
+    /// Parses Smogon's `Adamant:32/32/0/0/2/0`, which is also how forms send a preset.
+    pub fn parse(s: &str) -> Option<(String, [u16; 6])> {
         let (nature, rest) = s.split_once(':')?;
         let mut points = [0u16; 6];
         let mut parts = rest.split('/');
@@ -131,6 +137,10 @@ impl Spread {
 }
 
 impl Mon {
+    pub fn top_spread(&self) -> Option<&Spread> {
+        self.spreads.first()
+    }
+
     /// Change from last month in percentage points.
     pub fn delta(&self) -> Option<f64> {
         self.prev.map(|p| self.usage - p)
@@ -313,8 +323,8 @@ fn regulation_label(code: &str) -> String {
 fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
     let mut ranked: Vec<(String, RawMon)> = current.data.into_iter().collect();
     ranked.sort_by(|a, b| b.1.usage.total_cmp(&a.1.usage).then_with(|| a.0.cmp(&b.0)));
-    ranked.truncate(LADDER_SIZE);
-    let ladder: Vec<String> = ranked.iter().map(|(n, _)| n.clone()).collect();
+    ranked.retain(|(_, raw)| raw.usage > 0.0);
+    let ladder: std::collections::HashSet<String> = ranked.iter().map(|(n, _)| n.clone()).collect();
 
     let named = |id: &str| dex.display_name(id);
     let tera_name = |id: &str| {
@@ -329,35 +339,48 @@ fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
         .map(|(i, (name, raw))| {
             // Every set has exactly one ability, so the ability total is the number of sets.
             let sets: f64 = raw.abilities.values().sum::<f64>().max(f64::MIN_POSITIVE);
-            let pair_rates = ladder
+            let pair_rates = raw
+                .teammates
                 .iter()
-                .filter(|other| **other != name)
-                .filter_map(|other| raw.teammates.get(other).map(|c| (other.clone(), c / sets)))
+                .filter(|(other, _)| **other != name && ladder.contains(*other))
+                .map(|(other, c)| (other.clone(), c / sets))
                 .collect();
-            let spread = raw
+
+            let mut parsed: Vec<(String, [u16; 6], f64)> = raw
                 .spreads
                 .iter()
-                .max_by(|a, b| a.1.total_cmp(b.1))
-                .and_then(|(s, count)| {
-                    Spread::parse(s).map(|(nature, points)| Spread {
-                        nature,
-                        points,
-                        pct: count / sets * 100.0,
-                    })
-                });
+                .filter_map(|(s, count)| Spread::parse(s).map(|(n, p)| (n, p, *count)))
+                .collect();
+            parsed.sort_by(|a, b| b.2.total_cmp(&a.2));
+            let mut nature_counts: HashMap<String, f64> = HashMap::new();
+            for (n, _, count) in &parsed {
+                *nature_counts.entry(n.clone()).or_default() += count;
+            }
+            let natures = top_shares(&nature_counts, 25, Some(sets), str::to_owned);
+            let spreads = parsed
+                .into_iter()
+                .take(SPREAD_LIMIT)
+                .map(|(nature, points, count)| Spread {
+                    nature,
+                    points,
+                    pct: count / sets * 100.0,
+                })
+                .collect();
+
             let mut teammates: Vec<(String, f64)> = raw.teammates.into_iter().collect();
             teammates.sort_by(|a, b| b.1.total_cmp(&a.1));
             Mon {
-                spread,
+                spreads,
+                natures,
                 pair_rates,
                 prev: prev
                     .and_then(|p| p.data.get(&name))
                     .map(|p| p.usage * 100.0),
                 rank: i + 1,
                 usage: raw.usage * 100.0,
-                abilities: top_shares(&raw.abilities, 3, None, named),
-                items: top_shares(&raw.items, 5, None, named),
-                moves: top_shares(&raw.moves, 8, Some(sets), named),
+                abilities: top_shares(&raw.abilities, 6, None, named),
+                items: top_shares(&raw.items, OPTION_LIMIT, None, named),
+                moves: top_shares(&raw.moves, OPTION_LIMIT, Some(sets), named),
                 tera: top_shares(&raw.tera, 4, None, tera_name),
                 teammates: teammates.into_iter().take(6).map(|(n, _)| n).collect(),
                 name,

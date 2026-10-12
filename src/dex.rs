@@ -17,12 +17,18 @@ pub fn to_id(s: &str) -> String {
 }
 
 pub struct DexEntry {
+    /// Display name, e.g. `Charizard-Mega-Y`.
+    pub name: String,
     pub types: Vec<String>,
     /// HP, Atk, Def, SpA, SpD, Spe.
     pub stats: [u16; 6],
     /// The species a form belongs to, e.g. `Salamence` for `Salamence-Mega`. Two forms of
     /// one species can't share a team.
     pub base_species: String,
+    /// Abilities this form can have.
+    pub abilities: Vec<String>,
+    /// For Mega forms, the stone that triggers it, e.g. `Charizardite Y`.
+    pub required_item: Option<String>,
 }
 
 impl DexEntry {
@@ -75,6 +81,24 @@ impl Dex {
         self.entry(name).map_or(name, |e| e.base_species.as_str())
     }
 
+    /// The form a team list entry battles as. Team lists name Megas by their base species
+    /// plus stone (`Charizard` @ `Charizardite Y`), while usage stats use the Mega form's
+    /// name (`Charizard-Mega-Y`).
+    pub fn battle_form(&self, species: &str, item: Option<&str>) -> String {
+        let Some(entry) = self.entry(species) else {
+            return species.to_owned();
+        };
+        if let Some(item) = item {
+            let mega = self.entries.values().find(|e| {
+                e.base_species == entry.base_species && e.required_item.as_deref() == Some(item)
+            });
+            if let Some(m) = mega {
+                return m.name.clone();
+            }
+        }
+        entry.name.clone()
+    }
+
     /// Turns a stats-file ID like `heavydutyboots` into `Heavy-Duty Boots`.
     pub fn display_name(&self, id: &str) -> String {
         self.names.get(id).cloned().unwrap_or_else(|| id.to_owned())
@@ -120,18 +144,38 @@ fn parse_pokedex(v: &Value) -> HashMap<String, DexEntry> {
                 stat("spd")?,
                 stat("spe")?,
             ];
-            let base_species = e
-                .get("baseSpecies")
-                .or_else(|| e.get("name"))
+            let name = e
+                .get("name")
                 .and_then(Value::as_str)
                 .unwrap_or(id)
                 .to_owned();
+            let base_species = e
+                .get("baseSpecies")
+                .and_then(Value::as_str)
+                .unwrap_or(&name)
+                .to_owned();
+            let abilities = e
+                .get("abilities")
+                .and_then(Value::as_object)
+                .map(|a| {
+                    a.values()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let required_item = e
+                .get("requiredItem")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             Some((
                 id.clone(),
                 DexEntry {
+                    name,
                     types,
                     stats,
                     base_species,
+                    abilities,
+                    required_item,
                 },
             ))
         })

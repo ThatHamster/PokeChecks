@@ -3,12 +3,22 @@
 use maud::{Markup, html};
 
 use crate::dex::Dex;
-use crate::smogon::{Catalog, FormatInfo, Meta, Mon};
-use crate::team::{self, Blocked, Set, TEAM_SIZE};
+use crate::smogon::{Catalog, FormatInfo, Meta, Mon, Share};
+use crate::team::{
+    self, Blocked, Custom, MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, MOVE_SLOTS, Member, NATURES,
+    STAT_LABELS, Set, TEAM_SIZE,
+};
 use crate::view::{
     Page, Theme, ViewState, filter_form, filtered, month_name, shell, site_footer, site_header,
     type_chips,
 };
+
+/// A set edit that broke a rule. The page shows the message and keeps what was typed.
+pub struct EditError {
+    pub slot: usize,
+    pub message: String,
+    pub draft: Custom,
+}
 
 pub fn builder_page(
     catalog: &Catalog,
@@ -17,17 +27,24 @@ pub fn builder_page(
     dex: &Dex,
     vs: &ViewState,
     theme: Theme,
+    error: Option<&EditError>,
 ) -> Markup {
-    let members: Vec<&Mon> = vs
+    let chosen: Vec<(&Mon, Option<&Custom>)> = vs
         .team
         .iter()
-        .filter_map(|n| meta.mons.iter().find(|m| &m.name == n))
+        .filter_map(|member| {
+            meta.mons
+                .iter()
+                .find(|m| m.name == member.name)
+                .map(|m| (m, member.custom.as_ref()))
+        })
         .collect();
-    let sets = team::common_sets(&members);
+    let members: Vec<&Mon> = chosen.iter().map(|(m, _)| *m).collect();
+    let sets = team::resolve_sets(&chosen);
     let dek = html! {
         "Build a team for "
         strong { (format.kind.label()) " Regulation " (format.regulation) }
-        ". Each Pokémon starts with its most common set on the ladder, and suggestions come from who players pair together."
+        ". Each Pokémon starts with its most common set on the ladder. Open “Edit set” to change anything; every option shows how often the ladder uses it."
     };
 
     shell(
@@ -37,7 +54,7 @@ pub fn builder_page(
             (site_header(catalog, format, meta, vs, theme, dek))
             div.bench {
                 (picker(meta, dex, vs, &members))
-                (team_panel(catalog, format, meta, dex, vs, &sets))
+                (team_panel(catalog, format, meta, dex, vs, &sets, error))
             }
             (site_footer(catalog))
         },
@@ -111,7 +128,7 @@ fn picker(meta: &Meta, dex: &Dex, vs: &ViewState, members: &[&Mon]) -> Markup {
                             }
                         }
                         @if rows.is_empty() {
-                            tr.empty-row { td colspan="4" { "No Pokémon in the top " (meta.mons.len()) " match that search. Clear the filter or try another type." } }
+                            tr.empty-row { td colspan="4" { "No Pokémon in this month’s stats match that search. Clear the filter or try another type." } }
                         }
                     }
                 }
@@ -127,8 +144,10 @@ fn team_panel(
     dex: &Dex,
     vs: &ViewState,
     sets: &[Set],
+    error: Option<&EditError>,
 ) -> Markup {
     let megas = sets.iter().filter(|s| team::is_mega(&s.mon.name)).count();
+    let repeated = team::repeated_items(sets);
     html! {
         section.pane.scout aria-labelledby="team-h" {
             div.pane-head {
@@ -150,10 +169,15 @@ fn team_panel(
             } @else {
                 div.section {
                     div.team-grid {
-                        @for s in sets { (member_card(s, dex, vs)) }
+                        @for (slot, s) in sets.iter().enumerate() {
+                            (member_card(slot, s, dex, vs, error.filter(|e| e.slot == slot)))
+                        }
                         @for _ in sets.len()..TEAM_SIZE {
                             div.slot-empty { "Empty slot" }
                         }
+                    }
+                    @if !repeated.is_empty() {
+                        p.note.warn-text { "Item clause: " (repeated.join(", ")) " is held by more than one Pokémon. Each item can only be used once per team." }
                     }
                     @if megas > 1 {
                         p.note { "Only one Pokémon can Mega Evolve per battle, and this team has " (megas) " Megas." }
@@ -177,8 +201,15 @@ fn team_panel(
     }
 }
 
-fn member_card(s: &Set, dex: &Dex, vs: &ViewState) -> Markup {
+fn member_card(
+    slot: usize,
+    s: &Set,
+    dex: &Dex,
+    vs: &ViewState,
+    error: Option<&EditError>,
+) -> Markup {
     let m = s.mon;
+    let stats = s.stats(dex);
     html! {
         article.card.member {
             div.card-head {
@@ -186,23 +217,189 @@ fn member_card(s: &Set, dex: &Dex, vs: &ViewState) -> Markup {
                     span.nm { (m.name) }
                     a.remove href=(vs.team_toggled(&m.name).href()) aria-label={ "Remove " (m.name) " from your team" } { "×" }
                 }
-                (type_chips(dex.entry(&m.name)))
+                div.member-sub {
+                    (type_chips(dex.entry(&m.name)))
+                    @if s.custom { span.badge { "Your set" } } @else { span.badge.plain { "Most common set" } }
+                }
             }
             dl.set {
-                @if let Some(item) = &s.item { dt { "Item" } dd { (item) } }
-                @if let Some(ability) = &s.ability { dt { "Ability" } dd { (ability) } }
-                @if let Some(sp) = s.spread {
-                    dt { "Nature" } dd { (sp.nature) }
+                dt { "Item" }
+                dd { (s.item.as_deref().unwrap_or("No item")) (usage_note(&m.items, s.item.as_deref())) }
+                dt { "Ability" }
+                dd { (s.ability.as_deref().unwrap_or("—")) (usage_note(&m.abilities, s.ability.as_deref())) }
+                @if let Some(nature) = &s.nature {
+                    dt { "Nature" } dd { (team::nature_label(nature)) }
+                }
+                @if let Some(points) = &s.points {
                     dt { "Points" }
                     dd.num {
-                        (team::points_line(&sp.points))
-                        " " span.muted.small title="Share of sets with exactly this spread" { "(" (format!("{:.0}", sp.pct)) "% of sets)" }
+                        @let line = team::points_line(points);
+                        (if line.is_empty() { "None".to_owned() } else { line })
+                        @match s.spread_pct() {
+                            Some(p) => span.muted.small title="Share of ladder sets with exactly this nature and spread" { (format!("{p:.1}% of sets")) },
+                            None => span.muted.small { "Not a common spread" },
+                        }
                     }
                 }
-                dt { "Speed" } dd.num { (s.speed(dex)) }
+            }
+            div.stat-line {
+                @for (label, value) in STAT_LABELS.iter().zip(stats) {
+                    span { span.label { (label) } span.num.strong { (value) } }
+                }
             }
             ul.moves {
                 @for mv in &s.moves { li { (mv) } }
+                @for _ in s.moves.len()..MOVE_SLOTS { li.empty-move { "No move" } }
+            }
+            details.edit open[error.is_some()] {
+                summary { "Edit set" }
+                @if let Some(e) = error {
+                    p.form-error role="alert" { (e.message) }
+                }
+                (edit_form(slot, s, dex, vs, error.map(|e| &e.draft)))
+            }
+            @if s.custom {
+                a.reset href=(vs.with_default_set(slot).href()) { "Reset to most common set" }
+            }
+        }
+    }
+}
+
+/// ` · 63.7%` when the ladder uses this option, nothing otherwise.
+fn usage_note(options: &[Share], chosen: Option<&str>) -> Markup {
+    let pct = chosen
+        .and_then(|c| options.iter().find(|o| o.name == c))
+        .map(|o| o.pct);
+    html! {
+        @if let Some(p) = pct { span.muted.small.inline { (format!(" · {p:.1}%")) } }
+    }
+}
+
+/// Every editable field of one member's set, sent as a GET form back to the builder.
+fn edit_form(slot: usize, s: &Set, dex: &Dex, vs: &ViewState, draft: Option<&Custom>) -> Markup {
+    let m = s.mon;
+    let current = draft.cloned().unwrap_or_else(|| s.to_custom());
+    let id = |field: &str| format!("s{slot}-{field}");
+    let total: u16 = current.points.iter().sum();
+
+    // Abilities the form can have that the ladder never used, listed after the used ones.
+    let legal_abilities: Vec<String> = dex
+        .entry(&m.name)
+        .map(|e| e.abilities.clone())
+        .unwrap_or_default();
+    let unused_abilities: Vec<&String> = legal_abilities
+        .iter()
+        .filter(|a| !m.abilities.iter().any(|u| &u.name == *a))
+        .collect();
+
+    // Natures in order of use, then the rest alphabetically.
+    let mut natures: Vec<(&str, Option<f64>)> = m
+        .natures
+        .iter()
+        .filter(|n| NATURES.contains(&n.name.as_str()))
+        .map(|n| (n.name.as_str(), Some(n.pct)))
+        .collect();
+    for n in NATURES {
+        if !natures.iter().any(|(x, _)| *x == n) {
+            natures.push((n, None));
+        }
+    }
+
+    html! {
+        form.set-form method="get" action=(Page::Builder.path()) {
+            input type="hidden" name="fmt" value=(vs.fmt);
+            input type="hidden" name="cut" value=(vs.cut);
+            input type="hidden" name="pick" value=(vs.picks.join(","));
+            input type="hidden" name="team" value=(vs.team_param());
+            @if !vs.q.is_empty() { input type="hidden" name="q" value=(vs.q); }
+            @if !vs.ty.is_empty() { input type="hidden" name="type" value=(vs.ty); }
+            input type="hidden" name="edit" value=(slot);
+
+            div.field {
+                label for=(id("item")) { "Item" }
+                select #(id("item")) name="item" {
+                    option value="" selected[current.item.is_none()] { "No item" }
+                    (option_list(&m.items, current.item.as_deref()))
+                }
+            }
+            div.field {
+                label for=(id("ability")) { "Ability" }
+                select #(id("ability")) name="ability" {
+                    (option_list(&m.abilities, current.ability.as_deref()))
+                    @for a in &unused_abilities {
+                        option value=(a) selected[current.ability.as_deref() == Some(a.as_str())] { (a) " · not used on ladder" }
+                    }
+                }
+            }
+            fieldset.field {
+                legend { "Moves" }
+                div.move-grid {
+                    @for i in 0..MOVE_SLOTS {
+                        @let chosen = current.moves.get(i).map(String::as_str);
+                        label.sr-only for=(id(&format!("m{}", i + 1))) { "Move " (i + 1) }
+                        select #(id(&format!("m{}", i + 1))) name={ "m" (i + 1) } {
+                            option value="" selected[chosen.is_none()] { "No move" }
+                            (option_list(&m.moves, chosen))
+                        }
+                    }
+                }
+            }
+            div.field {
+                label for=(id("nature")) { "Nature" }
+                select #(id("nature")) name="nature" {
+                    @for (n, pct) in &natures {
+                        option value=(n) selected[current.nature == *n] {
+                            (team::nature_label(n))
+                            @if let Some(p) = pct { (format!(" · {p:.1}%")) }
+                        }
+                    }
+                }
+            }
+            fieldset.field {
+                legend { "Stat points" }
+                div.points-grid {
+                    @for (i, label) in STAT_LABELS.iter().enumerate() {
+                        div {
+                            label for=(id(&format!("p{i}"))) { (label) }
+                            input #(id(&format!("p{i}"))) type="number" name={ "p" (i) } min="0" max=(MAX_POINTS_PER_STAT) step="1" value=(current.points[i]) inputmode="numeric";
+                        }
+                    }
+                }
+                p.note { "0–" (MAX_POINTS_PER_STAT) " per stat, " (MAX_POINTS_TOTAL) " in total. This set uses " (total) "." }
+            }
+            button.go type="submit" name="apply" value="set" { "Save set" }
+
+            @if !m.spreads.is_empty() {
+                div.field.preset {
+                    label for=(id("preset")) { "Or use a common spread" }
+                    div.preset-row {
+                        select #(id("preset")) name="preset" {
+                            @for sp in &m.spreads {
+                                @let value = format!("{}:{}", sp.nature, sp.points.map(|p| p.to_string()).join("/"));
+                                @let line = team::points_line(&sp.points);
+                                option value=(value) selected[sp.nature == current.nature && sp.points == current.points] {
+                                    (sp.nature) " · " (if line.is_empty() { "no points".to_owned() } else { line }) (format!(" · {:.1}%", sp.pct))
+                                }
+                            }
+                        }
+                        button.mini type="submit" name="apply" value="preset" { "Use spread" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `<option>`s for a usage list, with the chosen value first if the ladder never used it.
+fn option_list(options: &[Share], chosen: Option<&str>) -> Markup {
+    let missing = chosen.filter(|c| !options.iter().any(|o| o.name == *c));
+    html! {
+        @if let Some(c) = missing {
+            option value=(c) selected { (c) " · not in usage data" }
+        }
+        @for o in options {
+            option value=(o.name) selected[chosen == Some(o.name.as_str())] {
+                (o.name) (format!(" · {:.1}%", o.pct))
             }
         }
     }
@@ -313,7 +510,7 @@ pub fn teams_page(
 
 fn meta_team_card(t: &team::MetaTeam, dex: &Dex, vs: &ViewState) -> Markup {
     let sets = team::common_sets(&t.members);
-    let names: Vec<String> = t.members.iter().map(|m| m.name.clone()).collect();
+    let names: Vec<Member> = t.members.iter().map(|m| Member::new(&m.name)).collect();
     // Named after the Pokémon the team was built from and the first partner it picked.
     let title = format!("{} + {}", t.members[0].name, t.members[1].name);
     let megas = t.members.iter().filter(|m| team::is_mega(&m.name)).count();

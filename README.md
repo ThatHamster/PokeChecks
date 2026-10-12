@@ -12,13 +12,19 @@ Three pages share one URL, so links keep the format, comparison and team:
 
 - **Usage:** the ladder, sortable and filterable, with up to four Pokémon compared side by
   side on base stats, items, moves and teammates.
-- **Team builder:** pick up to six Pokémon (one per species). Each gets its most common set,
-  with items following the item clause. The page shows type matchups (counting abilities
-  like Levitate), level 50 Speed from the common nature and stat points, teammate
-  suggestions, and a Showdown / Poképaste export.
+- **Team builder:** pick up to six Pokémon (one per species). Each starts on its most common
+  set, with items following the item clause. "Edit set" changes the item, ability, moves,
+  nature and stat points; every option shows its ladder usage, common spreads are one click
+  away, and custom stat points are checked against the Champions limits (32 per stat, 66
+  total). The page shows level 50 stats, type matchups (counting abilities like Levitate),
+  Speed order, teammate suggestions, and a Showdown / Poképaste export.
 - **Meta teams:** teams assembled from teammate statistics. Each starts from a popular
   Pokémon and adds whichever Pokémon most often appear alongside the ones already picked,
   without mixing weathers or terrains. They show common cores, not specific players' teams.
+- **Tournament teams:** top 4 open team lists from the largest recent events for the current
+  regulation on [Limitless](https://play.limitlesstcg.com/tournaments?game=VGC), refreshed
+  every three hours. Any team opens in the builder; team lists have no stat points, so the
+  builder fills them in from the most common spread for each Pokémon and nature.
 
 ![The team builder with Rillaboom, Incineroar, Salamence-Mega and Sneasler, showing their common sets, teammate suggestions and type matchups](docs/team-builder.png)
 
@@ -47,6 +53,7 @@ cargo clippy --all-targets -- -D warnings
 
 - Usage: [Smogon usage stats](https://www.smogon.com/stats/), the monthly "chaos" files.
 - Base stats, types, and move, item and ability names: [Pokémon Showdown](https://play.pokemonshowdown.com/data/).
+- Tournament teams: the [Limitless public API](https://docs.limitlesstcg.com/developer.html).
 
 ## License
 

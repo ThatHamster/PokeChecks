@@ -4,7 +4,8 @@
 use maud::{DOCTYPE, Markup, html};
 
 use crate::dex::{Dex, DexEntry};
-use crate::smogon::{Catalog, FormatInfo, Meta, Mon, Share};
+use crate::smogon::{Catalog, FormatInfo, LADDER_SIZE, Meta, Mon, Share};
+use crate::team::Member;
 
 pub const CSS: &str = include_str!("../assets/app.css");
 
@@ -63,23 +64,25 @@ impl SortKey {
     }
 }
 
-/// The site's three pages. They share one URL state, so switching pages keeps the
-/// format, comparison and team.
+/// The site's pages. They share one URL state, so switching pages keeps the format,
+/// comparison and team.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Usage,
     Builder,
     Teams,
+    Tournaments,
 }
 
 impl Page {
-    const ALL: [Page; 3] = [Page::Usage, Page::Builder, Page::Teams];
+    const ALL: [Page; 4] = [Page::Usage, Page::Builder, Page::Teams, Page::Tournaments];
 
     pub fn path(self) -> &'static str {
         match self {
             Self::Usage => "/",
             Self::Builder => "/builder",
             Self::Teams => "/teams",
+            Self::Tournaments => "/tournaments",
         }
     }
 
@@ -88,6 +91,7 @@ impl Page {
             Self::Usage => "Usage",
             Self::Builder => "Team builder",
             Self::Teams => "Meta teams",
+            Self::Tournaments => "Tournament teams",
         }
     }
 }
@@ -103,7 +107,7 @@ pub struct ViewState {
     pub q: String,
     pub ty: String,
     pub picks: Vec<String>,
-    pub team: Vec<String>,
+    pub team: Vec<Member>,
 }
 
 impl ViewState {
@@ -122,7 +126,7 @@ impl ViewState {
         }
         pairs.push(("pick", self.picks.join(",")));
         if !self.team.is_empty() {
-            pairs.push(("team", self.team.join(",")));
+            pairs.push(("team", self.team_param()));
         }
         format!(
             "{}?{}",
@@ -138,20 +142,42 @@ impl ViewState {
         }
     }
 
-    pub(crate) fn with_team(&self, team: Vec<String>) -> Self {
+    /// The `team` query value: members separated by commas.
+    pub(crate) fn team_param(&self) -> String {
+        self.team
+            .iter()
+            .map(Member::encode)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    pub(crate) fn with_team(&self, team: Vec<Member>) -> Self {
         Self {
             team,
             ..self.clone()
         }
     }
 
+    pub(crate) fn on_team(&self, name: &str) -> bool {
+        self.team.iter().any(|m| m.name == name)
+    }
+
     /// Adds `name` to the team, or removes it if it's already there.
     pub(crate) fn team_toggled(&self, name: &str) -> Self {
         let mut team = self.team.clone();
-        if let Some(i) = team.iter().position(|p| p == name) {
+        if let Some(i) = team.iter().position(|m| m.name == name) {
             team.remove(i);
         } else if team.len() < crate::team::TEAM_SIZE {
-            team.push(name.to_owned());
+            team.push(Member::new(name));
+        }
+        self.with_team(team)
+    }
+
+    /// Puts member `slot` back on its most common set.
+    pub(crate) fn with_default_set(&self, slot: usize) -> Self {
+        let mut team = self.team.clone();
+        if let Some(m) = team.get_mut(slot) {
+            m.custom = None;
         }
         self.with_team(team)
     }
@@ -381,7 +407,7 @@ pub(crate) fn filter_form(meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
             input type="hidden" name="dir" value=(if vs.desc { "desc" } else { "asc" });
             input type="hidden" name="pick" value=(vs.picks.join(","));
             @if !vs.team.is_empty() {
-                input type="hidden" name="team" value=(vs.team.join(","));
+                input type="hidden" name="team" value=(vs.team_param());
             }
             label.sr-only for="q" { "Search Pokémon" }
             input #q type="search" name="q" value=(vs.q) placeholder="Search Pokémon" autocomplete="off";
@@ -400,15 +426,22 @@ pub(crate) fn filter_form(meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
     }
 }
 
-/// Ladder rows matching the search box and type filter, in ladder order.
+/// Ladder rows matching the search box and type filter, in ladder order. Without a filter
+/// this is the top of the ladder; a search reaches every Pokémon in the stats.
 pub(crate) fn filtered<'a>(meta: &'a Meta, dex: &Dex, vs: &ViewState) -> Vec<&'a Mon> {
     let query = vs.q.trim().to_lowercase();
+    let limit = if query.is_empty() && vs.ty.is_empty() {
+        LADDER_SIZE
+    } else {
+        usize::MAX
+    };
     meta.mons
         .iter()
         .filter(|m| query.is_empty() || m.name.to_lowercase().contains(&query))
         .filter(|m| {
             vs.ty.is_empty() || dex.entry(&m.name).is_some_and(|e| e.types.contains(&vs.ty))
         })
+        .take(limit)
         .collect()
 }
 
@@ -532,7 +565,7 @@ fn ladder(catalog: &Catalog, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                             }
                         }
                         @if rows.is_empty() {
-                            tr.empty-row { td colspan="6" { "No Pokémon in the top " (meta.mons.len()) " match that search. Clear the filter or try another type." } }
+                            tr.empty-row { td colspan="6" { "No Pokémon in this month’s stats match that search. Clear the filter or try another type." } }
                         }
                     }
                 }
@@ -541,7 +574,7 @@ fn ladder(catalog: &Catalog, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                 @if full {
                     "The comparison holds " (MAX_PICKS) " Pokémon. Remove one before adding another."
                 } @else {
-                    "Showing the top " (meta.mons.len()) " by usage. Tick a box to add that Pokémon to the comparison."
+                    "Showing the top " (LADDER_SIZE.min(meta.mons.len())) " by usage; search to find any of the " (meta.mons.len()) " in this month’s stats. Tick a box to add that Pokémon to the comparison."
                 }
             }
         }
@@ -667,7 +700,7 @@ fn card(m: &Mon, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &ViewState) ->
                     (delta(m))
                     span.sub { "rank " (m.rank) " in " (format.kind.label()) }
                 }
-                @if vs.team.contains(&m.name) {
+                @if vs.on_team(&m.name) {
                     a.to-team href=(vs.on_page(Page::Builder).href()) { "On your team →" }
                 } @else if vs.team.len() < crate::team::TEAM_SIZE {
                     a.to-team href=(vs.team_toggled(&m.name).on_page(Page::Builder).href()) { "Add to team →" }

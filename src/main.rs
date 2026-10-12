@@ -4,6 +4,8 @@ mod dex;
 mod smogon;
 mod team;
 mod team_view;
+mod tournament_view;
+mod tournaments;
 mod view;
 
 use std::collections::HashMap;
@@ -25,6 +27,10 @@ use view::{Page, SortKey, Theme, ViewState};
 
 /// How long to trust the list of months and regulations before asking Smogon again.
 const CATALOG_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+/// How long to keep tournament teams before asking Limitless again.
+const TOURNAMENT_TTL: Duration = Duration::from_secs(3 * 60 * 60);
+
+type Events = Arc<Vec<tournaments::Event>>;
 
 struct AppState {
     http: reqwest::Client,
@@ -32,6 +38,8 @@ struct AppState {
     catalog: RwLock<Option<(Instant, Arc<Catalog>)>>,
     /// Parsed usage keyed by `month/stem-cutoff`. Published months never change, so entries never expire.
     metas: Mutex<HashMap<String, Arc<Meta>>>,
+    /// Tournament teams keyed by regulation, e.g. `M-C`.
+    events: Mutex<HashMap<String, (Instant, Events)>>,
 }
 
 impl AppState {
@@ -62,6 +70,20 @@ impl AppState {
         self.metas.lock().await.insert(key, meta.clone());
         Ok(meta)
     }
+
+    async fn events(&self, regulation: &str) -> Result<Events> {
+        if let Some((at, events)) = self.events.lock().await.get(regulation)
+            && at.elapsed() < TOURNAMENT_TTL
+        {
+            return Ok(events.clone());
+        }
+        let fresh = Arc::new(tournaments::load(&self.http, regulation).await?);
+        self.events
+            .lock()
+            .await
+            .insert(regulation.to_owned(), (Instant::now(), fresh.clone()));
+        Ok(fresh)
+    }
 }
 
 /// Query string. Everything is a string so a blank or odd value falls back to a default
@@ -77,6 +99,93 @@ struct Params {
     ty: Option<String>,
     pick: Option<String>,
     team: Option<String>,
+    // Set edit form (team builder): which slot, the button pressed, and the fields.
+    edit: Option<String>,
+    apply: Option<String>,
+    item: Option<String>,
+    ability: Option<String>,
+    nature: Option<String>,
+    preset: Option<String>,
+    p0: Option<String>,
+    p1: Option<String>,
+    p2: Option<String>,
+    p3: Option<String>,
+    p4: Option<String>,
+    p5: Option<String>,
+    m1: Option<String>,
+    m2: Option<String>,
+    m3: Option<String>,
+    m4: Option<String>,
+}
+
+/// The outcome of a set edit: the new set, or why it was refused plus what was entered.
+type EditOutcome = Result<team::Custom, (String, team::Custom)>;
+
+/// Applies the set edit form to its slot. `None` when the request isn't an edit.
+fn edit_from_params(p: &Params, team: &[team::Member]) -> Option<(usize, EditOutcome)> {
+    let slot: usize = p.edit.as_deref()?.parse().ok()?;
+    team.get(slot)?;
+    let non_empty = |v: &Option<String>| {
+        v.as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+
+    let mut moves: Vec<String> = Vec::new();
+    for m in [&p.m1, &p.m2, &p.m3, &p.m4]
+        .into_iter()
+        .filter_map(non_empty)
+    {
+        if !moves.contains(&m) {
+            moves.push(m);
+        }
+    }
+    let raw_points = [&p.p0, &p.p1, &p.p2, &p.p3, &p.p4, &p.p5];
+    let mut points = [0u16; 6];
+    let mut bad_number = None;
+    for (i, raw) in raw_points.iter().enumerate() {
+        match non_empty(raw).map(|v| v.parse::<u16>()) {
+            None => {}
+            Some(Ok(n)) => points[i] = n,
+            Some(Err(_)) => bad_number = Some(team::STAT_LABELS[i]),
+        }
+    }
+    let mut custom = team::Custom {
+        item: non_empty(&p.item),
+        ability: non_empty(&p.ability),
+        nature: non_empty(&p.nature).unwrap_or_else(|| "Hardy".to_owned()),
+        points,
+        moves,
+    };
+
+    if p.apply.as_deref() == Some("preset") {
+        match p.preset.as_deref().and_then(smogon::Spread::parse) {
+            Some((nature, preset_points)) => {
+                custom.nature = nature;
+                custom.points = preset_points;
+            }
+            None => {
+                return Some((
+                    slot,
+                    Err(("Pick a spread from the list first.".to_owned(), custom)),
+                ));
+            }
+        }
+    } else if let Some(stat) = bad_number {
+        let msg = format!(
+            "{stat} needs a whole number from 0 to {}.",
+            team::MAX_POINTS_PER_STAT
+        );
+        return Some((slot, Err((msg, custom))));
+    }
+    Some((
+        slot,
+        custom
+            .validate()
+            .map(|()| custom.clone())
+            .map_err(|msg| (msg, custom)),
+    ))
 }
 
 async fn usage_page(
@@ -103,6 +212,14 @@ async fn teams_page(
     respond(&state, Page::Teams, &headers, p).await
 }
 
+async fn tournaments_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(p): Query<Params>,
+) -> Response {
+    respond(&state, Page::Tournaments, &headers, p).await
+}
+
 async fn respond(state: &AppState, page: Page, headers: &HeaderMap, p: Params) -> Response {
     let theme = headers
         .get(header::COOKIE)
@@ -110,7 +227,7 @@ async fn respond(state: &AppState, page: Page, headers: &HeaderMap, p: Params) -
         .map(Theme::from_cookie_header)
         .unwrap_or_default();
     match render(state, page, p, theme).await {
-        Ok(html) => Html(html).into_response(),
+        Ok(response) => response,
         Err(err) => {
             tracing::error!("{err:#}");
             let page = view::error_page(&format!("{err:#}"), theme);
@@ -155,11 +272,12 @@ fn safe_back(back: Option<&str>) -> &str {
     }
 }
 
-async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result<String> {
+async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result<Response> {
     let catalog = state.catalog().await?;
     let format = catalog.format(p.fmt.as_deref());
     let cut = p
         .cut
+        .as_deref()
         .and_then(|c| c.parse().ok())
         .filter(|c| format.cutoffs.contains(c))
         .unwrap_or_else(|| format.default_cutoff());
@@ -201,40 +319,98 @@ async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result
         }
     };
 
-    let team = parse_team(p.team.as_deref(), &meta, &state.dex);
+    let mut team = parse_team(p.team.as_deref(), &meta, &state.dex);
+    let edit = if page == Page::Builder {
+        edit_from_params(&p, &team)
+    } else {
+        None
+    };
 
-    let vs = ViewState {
+    let mut vs = ViewState {
         page,
         fmt: format.kind.key().to_owned(),
         cut: meta.cutoff,
         sort,
         desc,
-        q: p.q.unwrap_or_default(),
-        ty: p.ty.unwrap_or_default(),
+        q: p.q.clone().unwrap_or_default(),
+        ty: p.ty.clone().unwrap_or_default(),
         picks,
-        team,
+        team: Vec::new(),
     };
     let dex = &state.dex;
+
+    let mut edit_error = None;
+    match edit {
+        // A good edit goes back to the builder's clean URL so reloading doesn't resubmit it.
+        Some((slot, Ok(custom))) => {
+            team[slot].custom = Some(custom);
+            vs.team = team;
+            return Ok(Redirect::to(&vs.href()).into_response());
+        }
+        Some((slot, Err((message, draft)))) => {
+            edit_error = Some(team_view::EditError {
+                slot,
+                message,
+                draft,
+            });
+        }
+        None => {}
+    }
+    vs.team = team;
+
     let html = match page {
         Page::Usage => view::page(&catalog, format, &meta, dex, &vs, theme),
-        Page::Builder => team_view::builder_page(&catalog, format, &meta, dex, &vs, theme),
+        Page::Builder => team_view::builder_page(
+            &catalog,
+            format,
+            &meta,
+            dex,
+            &vs,
+            theme,
+            edit_error.as_ref(),
+        ),
         Page::Teams => team_view::teams_page(&catalog, format, &meta, dex, &vs, theme),
+        Page::Tournaments => {
+            let loaded;
+            let source = if format.kind == smogon::Kind::Bss {
+                tournament_view::Source::SinglesFormat
+            } else {
+                match state.events(&format.regulation).await {
+                    Ok(events) => {
+                        loaded = events;
+                        tournament_view::Source::Events(&loaded)
+                    }
+                    Err(err) => {
+                        tracing::warn!("tournament teams unavailable: {err:#}");
+                        tournament_view::Source::Unavailable(format!("{err:#}"))
+                    }
+                }
+            };
+            tournament_view::tournaments_page(&catalog, format, &meta, dex, &vs, theme, source)
+        }
     };
-    Ok(html.into_string())
+    Ok(Html(html.into_string()).into_response())
 }
 
-/// Keeps team members that are on this ladder, dropping repeats, a second form of the
-/// same species, and anything past six.
-fn parse_team(list: Option<&str>, meta: &Meta, dex: &Dex) -> Vec<String> {
-    let mut team: Vec<&smogon::Mon> = Vec::new();
-    for name in list.unwrap_or("").split(',').map(str::trim) {
-        if let Some(m) = meta.mons.iter().find(|m| m.name == name)
-            && team::blocked(&team, name, dex).is_none()
+/// Keeps team members that are in this format's stats, dropping repeats, a second form of
+/// the same species, and anything past six.
+fn parse_team(list: Option<&str>, meta: &Meta, dex: &Dex) -> Vec<team::Member> {
+    let mut mons: Vec<&smogon::Mon> = Vec::new();
+    let mut members = Vec::new();
+    for token in list
+        .unwrap_or("")
+        .split(',')
+        .filter(|t| !t.trim().is_empty())
+    {
+        let member = team::Member::decode(token);
+        if let Some(m) = meta.mons.iter().find(|m| m.name == member.name)
+            && team::blocked(&mons, &member.name, dex).is_none()
         {
-            team.push(m);
+            mons.push(m);
+            members.push(member);
         }
     }
-    team.into_iter().map(|m| m.name.clone()).collect()
+    members
 }
 
 async fn stylesheet() -> impl IntoResponse {
@@ -263,6 +439,7 @@ async fn main() -> Result<()> {
         dex,
         catalog: RwLock::new(None),
         metas: Mutex::new(HashMap::new()),
+        events: Mutex::new(HashMap::new()),
     });
 
     // Warm the default view so the first visitor doesn't wait on the download.
@@ -283,6 +460,7 @@ async fn main() -> Result<()> {
         .route("/", get(usage_page))
         .route("/builder", get(builder_page))
         .route("/teams", get(teams_page))
+        .route("/tournaments", get(tournaments_page))
         .route("/app.css", get(stylesheet))
         .route("/theme", get(set_theme))
         .with_state(state);
