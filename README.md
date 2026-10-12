@@ -30,3 +30,7 @@ cargo clippy --all-targets -- -D warnings
 
 - Usage: [Smogon usage stats](https://www.smogon.com/stats/), the monthly "chaos" files.
 - Base stats, types, and move, item and ability names: [Pokémon Showdown](https://play.pokemonshowdown.com/data/).
+
+## License
+
+MIT. See [LICENSE](LICENSE).

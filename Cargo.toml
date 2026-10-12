@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
 description = "Pokémon Champions ranked usage compared side by side with base stats"
+license = "MIT"
 publish = false
 
 [dependencies]
