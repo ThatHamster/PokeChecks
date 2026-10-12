@@ -3,7 +3,8 @@
 use maud::{Markup, html};
 
 use crate::dex::Dex;
-use crate::smogon::{Catalog, FormatInfo, Meta, Mon, Share};
+use crate::gameplan::{self, GamePlan, PlanMon};
+use crate::smogon::{Catalog, FormatInfo, Kind, Meta, Mon, Share};
 use crate::team::{
     self, Blocked, Custom, MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, MOVE_SLOTS, Member, NATURES,
     STAT_LABELS, Set, TEAM_SIZE,
@@ -499,8 +500,9 @@ pub fn teams_page(
                     "This format doesn’t have enough teammate data at the " (meta.cutoff) "+ cutoff. Try a lower rating cutoff."
                 }
             } @else {
+                (newcomer_note())
                 div.meta-teams {
-                    @for t in &teams { (meta_team_card(t, dex, vs)) }
+                    @for t in &teams { (meta_team_card(t, dex, vs, format.kind != Kind::Bss)) }
                 }
             }
             (site_footer(catalog))
@@ -508,8 +510,51 @@ pub fn teams_page(
     )
 }
 
-fn meta_team_card(t: &team::MetaTeam, dex: &Dex, vs: &ViewState) -> Markup {
+/// Sets expectations for the game plans on the meta and tournament team pages.
+pub(crate) fn newcomer_note() -> Markup {
+    html! {
+        p.note.page-note {
+            strong { "New to competitive play? " }
+            "Each team has a “How this team plays” section with a simple starting plan and what each Pokémon is there to do. It’s worked out from the team’s moves and abilities to help newer players get started; experienced players adjust their plan every game."
+        }
+    }
+}
+
+/// The game plan, folded away so the card stays short.
+pub(crate) fn plan_section(plan: &GamePlan) -> Markup {
+    html! {
+        details.plan {
+            summary {
+                "How this team plays"
+                @if let Some(style) = plan.style { ": " (style) }
+                span.muted.small.inline { " · for newer players" }
+            }
+            div.plan-body {
+                ol.plan-steps {
+                    @for step in &plan.steps { li { (step) } }
+                }
+                h4 { "What each Pokémon does" }
+                dl.plan-roles {
+                    @for (name, roles) in &plan.roles {
+                        dt { (name) }
+                        dd {
+                            ul {
+                                @for r in roles {
+                                    li { span.role { (r.label) } " " (r.detail) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn meta_team_card(t: &team::MetaTeam, dex: &Dex, vs: &ViewState, doubles: bool) -> Markup {
     let sets = team::common_sets(&t.members);
+    let plan_mons: Vec<PlanMon> = sets.iter().map(|s| PlanMon::from_set(s, dex)).collect();
+    let plan = gameplan::plan(&plan_mons, doubles);
     let names: Vec<Member> = t.members.iter().map(|m| Member::new(&m.name)).collect();
     // Named after the Pokémon the team was built from and the first partner it picked.
     let title = format!("{} + {}", t.members[0].name, t.members[1].name);
@@ -549,6 +594,7 @@ fn meta_team_card(t: &team::MetaTeam, dex: &Dex, vs: &ViewState) -> Markup {
                     strong.num { (format!("{:.1}%", avg_usage)) }
                 }
             }
+            (plan_section(&plan))
             div.team-actions {
                 a.go href=(vs.with_team(names).on_page(Page::Builder).href()) { "Open in team builder" }
                 details {

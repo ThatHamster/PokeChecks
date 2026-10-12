@@ -142,7 +142,7 @@ pub fn multiplier(attack: &str, defender_types: &[String], ability: Option<&str>
 }
 
 /// The stat a nature raises and lowers, as indexes into HP/Atk/Def/SpA/SpD/Spe.
-fn nature_effect(nature: &str) -> Option<(usize, usize)> {
+pub(crate) fn nature_effect(nature: &str) -> Option<(usize, usize)> {
     let (up, down) = match nature {
         "Lonely" => (1, 2),
         "Brave" => (1, 5),

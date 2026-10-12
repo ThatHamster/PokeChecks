@@ -8,7 +8,12 @@ Written in Rust (edition 2024, Rust 1.99) with Axum and Maud. Pages are rendered
 server and need no JavaScript. A System / Light / Dark switch in the header lets each
 visitor pick a theme, remembered in a cookie; System follows the device setting.
 
-Three pages share one URL, so links keep the format, comparison and team:
+Every meta team and tournament team has a "How this team plays" section for newer players:
+a short starting plan (the team's main idea, a simple lead, which Pokémon to Mega Evolve,
+who does the damage) and what each Pokémon is there to do. It's worked out from the team's
+own moves, abilities and items, so it stays accurate as the teams change.
+
+The pages share one URL, so links keep the format, comparison and team:
 
 - **Usage:** the ladder, sortable and filterable, with up to four Pokémon compared side by
   side on base stats, items, moves and teammates.

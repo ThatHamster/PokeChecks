@@ -3,7 +3,9 @@
 use maud::{Markup, html};
 
 use crate::dex::Dex;
+use crate::gameplan::{self, PlanMon};
 use crate::smogon::{Catalog, FormatInfo, Kind, Meta};
+use crate::team_view::{newcomer_note, plan_section};
 use crate::tournaments::{self, EntryTeam, Event, Tournaments};
 use crate::view::{Page, Theme, ViewState, shell, site_footer, site_header, type_chips};
 
@@ -55,6 +57,7 @@ pub fn tournaments_page(
                     p.note.page-note {
                         "Team lists don’t include stat points. “Open in team builder” fills them in with the most common spread for each Pokémon and nature, so check them before you play."
                     }
+                    (newcomer_note())
                     @for e in &t.events { (event_section(e, meta, dex, vs)) }
                 }
                 Source::Events(t) => {
@@ -105,6 +108,13 @@ fn event_section(e: &Event, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
 
 fn entry_card(t: &EntryTeam, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
     let (members, missing) = tournaments::to_members(t, meta, dex);
+    // Limitless only runs VGC, so these are always doubles teams.
+    let plan_mons: Vec<PlanMon> = t
+        .members
+        .iter()
+        .map(|m| PlanMon::from_list(m, dex))
+        .collect();
+    let plan = gameplan::plan(&plan_mons, true);
     html! {
         article.pane.team-card {
             div.team-card-head {
@@ -143,6 +153,7 @@ fn entry_card(t: &EntryTeam, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                     }
                 }
             }
+            (plan_section(&plan))
             div.team-actions {
                 @if members.is_empty() {
                     span.muted.small { "None of these Pokémon are in this month’s usage data." }

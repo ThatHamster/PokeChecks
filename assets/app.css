@@ -281,6 +281,19 @@ details.edit[open] > summary { margin-bottom: 10px; }
 .list-sets { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .list-set { display: flex; flex-direction: column; gap: 1px; font-size: 13px; }
 
+/* Game plans */
+details.plan { border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); }
+details.plan > summary { cursor: pointer; padding: 9px 12px; font-size: 13.5px; font-weight: 600; }
+details.plan > summary:hover { color: var(--accent); }
+.plan-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; line-height: 1.55; }
+.plan-steps { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+.plan-body h4 { margin: 4px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.plan-roles { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.plan-roles dt { font-weight: 600; }
+.plan-roles dd { margin: 0; }
+.plan-roles ul { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.role { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-right: 2px; white-space: nowrap; }
+
 /* Meta teams */
 .meta-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 18px; align-items: start; }
 .team-card { padding: 16px; display: flex; flex-direction: column; gap: 14px; }

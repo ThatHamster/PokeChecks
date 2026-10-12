@@ -1,6 +1,7 @@
 //! PokeChecks: Pokémon Champions ranked usage next to base stats, served as plain HTML.
 
 mod dex;
+mod gameplan;
 mod smogon;
 mod team;
 mod team_view;
