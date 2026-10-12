@@ -6,9 +6,10 @@ use serde::Deserialize;
 
 use crate::calc::{self, Combatant, Field, Outcome, Terrain, Weather};
 use crate::dex::{Category, Dex, MoveData};
-use crate::smogon::{Catalog, FormatInfo, Kind, Meta, Mon};
+use crate::smogon::{Catalog, FormatInfo, Kind, Meta, Mon, Spread};
 use crate::team::{
     MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, NATURES, STAT_LABELS, nature_effect, nature_label,
+    points_line,
 };
 use crate::team_view::option_list;
 use crate::view::{Page, Theme, ViewState, shell, site_footer, site_header, type_chips};
@@ -45,6 +46,11 @@ pub struct CalcParams {
     d_p4: Option<String>,
     d_p5: Option<String>,
     d_boost: Option<String>,
+    /// A common spread picked from the list, applied when its "Use spread" button is pressed.
+    a_preset: Option<String>,
+    d_preset: Option<String>,
+    /// Which submit button was pressed: `a_preset`, `d_preset`, or the main Calculate.
+    apply: Option<String>,
     weather: Option<String>,
     terrain: Option<String>,
     crit: Option<String>,
@@ -202,7 +208,7 @@ impl CalcState {
             )
         };
 
-        let (attacker, att_fresh) = read_side(
+        let (mut attacker, att_fresh) = read_side(
             att_mon,
             &p.a_prev,
             &p.a_item,
@@ -212,7 +218,7 @@ impl CalcState {
             &p.a_boost,
             Some(&p.a_burn),
         );
-        let (defender, def_fresh) = read_side(
+        let (mut defender, def_fresh) = read_side(
             def_mon,
             &p.d_prev,
             &p.d_item,
@@ -222,6 +228,21 @@ impl CalcState {
             &p.d_boost,
             None,
         );
+
+        // "Use spread" swaps in a common spread. It's ignored when the Pokémon itself just
+        // changed, since the chosen spread belonged to the previous one.
+        for (side, fresh, key, preset) in [
+            (&mut attacker, att_fresh, "a_preset", &p.a_preset),
+            (&mut defender, def_fresh, "d_preset", &p.d_preset),
+        ] {
+            if !fresh
+                && p.apply.as_deref() == Some(key)
+                && let Some((nature, points)) = preset.as_deref().and_then(Spread::parse)
+            {
+                side.nature = nature;
+                side.points = points;
+            }
+        }
 
         let moves = damaging_moves(att_mon, dex);
         let move_name = non_empty(&p.mv)
@@ -574,6 +595,7 @@ fn headline(state: &CalcState, o: &Outcome, mv: &MoveData, field: &Field) -> Mar
         line.push_str(&extras.join(" "));
     }
 
+    // The HP bar can't show more than 100%; the text shows the real numbers.
     let (lo, hi) = (o.percent(o.min()).min(100.0), o.percent(o.max()).min(100.0));
     html! {
         div.headline {
@@ -587,7 +609,7 @@ fn headline(state: &CalcState, o: &Outcome, mv: &MoveData, field: &Field) -> Mar
                         span.num { (o.min()) "–" (o.max()) }
                         span.muted.num { " / " (o.defender_hp) " HP" }
                     }
-                    p.pct.num { (format!("{lo:.1}–{hi:.1}%")) }
+                    p.pct.num { (format!("{:.1}–{:.1}%", o.percent(o.min()), o.percent(o.max()))) }
                     p.ko { (calc::ko_chance(&o.rolls, o.defender_hp)) }
                 }
                 div.hpbar role="img" aria-label={ (format!("Leaves {:.0}–{:.0}% HP", 100.0 - hi, 100.0 - lo)) } {
@@ -633,6 +655,9 @@ fn calc_form(
             input type="hidden" name="fmt" value=(vs.fmt);
             input type="hidden" name="cut" value=(vs.cut);
             input type="hidden" name="sent" value="1";
+            // Pressing Enter uses the form's first submit button, so this makes it Calculate
+            // rather than a "Use spread" button further down.
+            button.sr-only type="submit" name="apply" value="calc" tabindex="-1" aria-hidden="true" { "Calculate" }
             div.calc-grid {
                 section.pane.calc-side {
                     div.pane-head { h2 { "Attacker" } }
@@ -763,6 +788,29 @@ fn side_fields(
             p class={ "note" @if total > MAX_POINTS_TOTAL { " warn-text" } } {
                 (total) " of " (MAX_POINTS_TOTAL) " points used"
                 @if total > MAX_POINTS_TOTAL { ". That’s over the Champions limit, so this set can’t exist in game." }
+                @else {
+                    @match mon.spreads.iter().find(|s| s.nature == side.nature && s.points == side.points) {
+                        Some(s) => { (format!(" · {:.1}% of {} sets use this exact spread", s.pct, mon.name)) }
+                        None => { " · not one of " (mon.name) "’s common spreads" }
+                    }
+                }
+            }
+        }
+        @if !mon.spreads.is_empty() {
+            div.field.preset {
+                label for=(id("preset")) { "Common spreads" }
+                div.preset-row {
+                    select #(id("preset")) name=(id("preset")) {
+                        @for s in &mon.spreads {
+                            @let value = format!("{}:{}", s.nature, s.points.map(|p| p.to_string()).join("/"));
+                            @let line = points_line(&s.points);
+                            option value=(value) selected[s.nature == side.nature && s.points == side.points] {
+                                (s.nature) " · " (if line.is_empty() { "no points".to_owned() } else { line }) (format!(" · {:.1}%", s.pct))
+                            }
+                        }
+                    }
+                    button.mini type="submit" name="apply" value=(id("preset")) { "Use spread" }
+                }
             }
         }
         div.field {
