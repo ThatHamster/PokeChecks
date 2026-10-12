@@ -106,6 +106,25 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
+## Deploy
+
+The repo is set up for [Render](https://render.com), which redeploys on every push to `main`:
+
+1. In the Render dashboard, choose **New → Blueprint** and pick this repository. Render reads
+   `render.yaml` and creates a `pokechecks` web service on the Starter plan, built from the
+   `Dockerfile`.
+2. When it asks for `SUPPORT_URL`, paste your Ko-fi or GitHub Sponsors page to show a
+   "Support PokeChecks" link in the footer, or leave it empty to hide the link.
+3. Wait for the first build (several minutes, as it compiles in release mode). The site is then
+   at `https://pokechecks.onrender.com`, or similar if that name is taken.
+
+Avoid the Free plan: it sleeps when idle, and each wake-up downloads the Pokédex and usage
+stats again, so the first visit after a quiet spell is slow.
+
+The image works on any host that runs Docker. It listens on `0.0.0.0` at `PORT` (10000 by
+default) and answers health checks at `/healthz`. Outside Docker, set `HOST=0.0.0.0` to accept
+connections from other machines.
+
 ## Screenshots for this README
 
 With the server running, `python scripts/screenshots.py` retakes every image in `docs/`. It
@@ -116,7 +135,8 @@ found.
 
 - Usage: [Smogon usage stats](https://www.smogon.com/stats/), the monthly "chaos" files.
 - Base stats, types, and move, item and ability names: [Pokémon Showdown](https://play.pokemonshowdown.com/data/).
-- Pokémon mini sprites: Pokémon Showdown's icon sheet, loaded by the visitor's browser from Showdown.
+- Pokémon mini sprites: Pokémon Showdown's icon sheet, downloaded with the Pokédex and served by
+  PokeChecks itself.
 - Tournament teams: the [Limitless public API](https://docs.limitlesstcg.com/developer.html).
 
 ## License

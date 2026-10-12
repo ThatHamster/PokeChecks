@@ -494,9 +494,10 @@ label.check input { width: auto; margin: 0; accent-color: var(--accent); }
 .team-actions summary:hover { color: var(--ink); }
 .team-actions .paste { margin-top: 8px; }
 
-/* Pokémon mini sprites from Showdown's icon sheet (40×30 each); views set the position.
+/* Pokémon mini sprites from Showdown's icon sheet (40×30 each), served at /sprites.png;
+   views set the position.
    Negative margins trim the sheet's empty padding so rows don't grow. */
-.mon-icon { display: inline-block; flex: none; width: 40px; height: 30px; margin: -8px -2px -6px -4px; vertical-align: middle; background: url("https://play.pokemonshowdown.com/sprites/pokemonicons-sheet.png?v22") no-repeat; image-rendering: pixelated; }
+.mon-icon { display: inline-block; flex: none; width: 40px; height: 30px; margin: -8px -2px -6px -4px; vertical-align: middle; background: url("/sprites.png") no-repeat; image-rendering: pixelated; }
 .mon-name { display: inline-flex; align-items: center; gap: 6px; }
 .pick .mon-icon { margin-right: -6px; }
 .mon-cell .pick ~ .types { padding-left: 62px; }
@@ -516,6 +517,8 @@ th .th-mon-inline { display: flex; align-items: center; gap: 6px; }
 
 footer { font-size: 12.5px; color: var(--muted); max-width: 90ch; padding-top: 16px; border-top: 3px dotted var(--line); }
 footer a { color: var(--accent); font-weight: 700; }
+footer .fine { margin: 10px 0 0; font-size: 11.5px; }
+footer .support { white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; }

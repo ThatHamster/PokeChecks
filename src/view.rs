@@ -1,6 +1,8 @@
 //! Server-rendered HTML. All interaction (sorting, filtering, picking Pokémon to compare)
 //! is plain links and GET forms, so the page needs no JavaScript.
 
+use std::sync::OnceLock;
+
 use maud::{DOCTYPE, Markup, html};
 
 use crate::dex::{Dex, DexEntry};
@@ -396,9 +398,30 @@ pub(crate) fn site_footer(catalog: &Catalog) -> Markup {
                 "“vs " (short_month(prev)) "” is the change in percentage points from " (month_name(prev))
                 "; a format that did not exist then shows “new”. "
             }
-            "Move figures are the share of sets that carry the move. Base stats and types come from Pokémon Showdown’s Pokédex data."
+            "Move figures are the share of sets that carry the move. Base stats, types and sprites come from Pokémon Showdown."
+            p.fine {
+                "PokeChecks is a free fan project, not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon and its names and images belong to them."
+                @if let Some(url) = support_url() {
+                    " "
+                    a.support href=(url) target="_blank" rel="noopener" { "Support PokeChecks" }
+                    " to help cover hosting."
+                }
+            }
         }
     }
+}
+
+/// Where the footer's support link points, from the `SUPPORT_URL` environment variable
+/// (a Ko-fi or GitHub Sponsors page, say). No link without one; only https links count.
+fn support_url() -> Option<&'static str> {
+    static URL: OnceLock<Option<String>> = OnceLock::new();
+    URL.get_or_init(|| {
+        std::env::var("SUPPORT_URL")
+            .ok()
+            .map(|u| u.trim().to_owned())
+            .filter(|u| u.starts_with("https://"))
+    })
+    .as_deref()
 }
 
 /// Search box and type filter. Hidden fields carry the rest of the state through the GET form.

@@ -1,0 +1,17 @@
+# Render Blueprint: creates the PokeChecks web service from the Dockerfile and redeploys on
+# every push to main. See the README's "Deploy" section.
+services:
+  - type: web
+    name: pokechecks
+    runtime: docker
+    # Starter stays on. The free plan sleeps when idle, and every wake-up downloads the
+    # Pokédex and usage stats again.
+    plan: starter
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /healthz
+    envVars:
+      # Your Ko-fi or GitHub Sponsors page for the footer's support link. Set it in the
+      # Render dashboard; leave it empty to hide the link.
+      - key: SUPPORT_URL
+        sync: false

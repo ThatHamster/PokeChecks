@@ -600,6 +600,26 @@ async fn stylesheet() -> impl IntoResponse {
     )
 }
 
+/// The Pokémon icon sheet. Falls back to Showdown's copy if the download failed at startup.
+async fn sprites(State(state): State<Arc<AppState>>) -> Response {
+    match state.dex().await.icon_sheet() {
+        Some(png) => (
+            [
+                (header::CONTENT_TYPE, "image/png"),
+                (header::CACHE_CONTROL, "public, max-age=86400"),
+            ],
+            png,
+        )
+            .into_response(),
+        None => Redirect::temporary(dex::SHOWDOWN_ICON_SHEET).into_response(),
+    }
+}
+
+/// For the host's health checks. Doesn't touch Smogon, so a slow download can't fail it.
+async fn health() -> &'static str {
+    "ok"
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_target(false).init();
@@ -642,6 +662,8 @@ async fn main() -> Result<()> {
         .route("/calc", get(calc_page))
         .route("/speed", get(speed_page))
         .route("/app.css", get(stylesheet))
+        .route("/sprites.png", get(sprites))
+        .route("/healthz", get(health))
         .route("/theme", get(set_theme))
         .route("/saved/save", post(save_team))
         .route("/saved/delete", post(delete_team))
@@ -651,7 +673,12 @@ async fn main() -> Result<()> {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3000);
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    // Local runs only accept this computer; hosts set HOST=0.0.0.0 to accept the internet.
+    let host: std::net::IpAddr = std::env::var("HOST")
+        .ok()
+        .and_then(|h| h.parse().ok())
+        .unwrap_or([127, 0, 0, 1].into());
+    let addr = std::net::SocketAddr::new(host, port);
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("binding {addr}"))?;

@@ -3,12 +3,16 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
+use axum::body::Bytes;
 use regex::Regex;
 use serde_json::Value;
 
 const SHOWDOWN_DATA: &str = "https://play.pokemonshowdown.com/data/";
 /// Holds `BattlePokemonIconIndexes`, the sprite sheet positions of forms and Megas.
 const SHOWDOWN_ICON_INDEXES: &str = "https://play.pokemonshowdown.com/js/battle-dex-data.js";
+/// Showdown's mini icon sheet: 40×30 icons, 12 to a row. PokeChecks serves its own copy.
+pub const SHOWDOWN_ICON_SHEET: &str =
+    "https://play.pokemonshowdown.com/sprites/pokemonicons-sheet.png";
 
 /// Showdown's ID format: lowercase ASCII letters and digits only.
 pub fn to_id(s: &str) -> String {
@@ -87,6 +91,8 @@ pub struct Dex {
     moves: HashMap<String, MoveData>,
     /// Icon sheet positions for forms whose icon isn't at their Dex number.
     icon_indexes: HashMap<String, u16>,
+    /// The icon sheet PNG, or `None` if it couldn't be downloaded.
+    icon_sheet: Option<Bytes>,
 }
 
 impl Dex {
@@ -113,14 +119,22 @@ impl Dex {
         }
         parse_js_names(&items, &mut names);
         parse_js_names(&abilities, &mut names);
-        // Icons are decoration, so a failed download only costs form-specific icons.
-        let icon_indexes = match fetch_url(http, SHOWDOWN_ICON_INDEXES).await {
+        // Icons are decoration, so a failed download only costs form-specific icons or a
+        // locally served sheet.
+        let (indexes, sheet) = tokio::join!(
+            fetch_url(http, SHOWDOWN_ICON_INDEXES),
+            fetch_icon_sheet(http)
+        );
+        let icon_indexes = match indexes {
             Ok(src) => parse_icon_indexes(&src),
             Err(e) => {
                 tracing::warn!(error = %e, "couldn't load Showdown icon indexes");
                 HashMap::new()
             }
         };
+        let icon_sheet = sheet
+            .inspect_err(|e| tracing::warn!(error = %e, "couldn't download Showdown icon sheet"))
+            .ok();
 
         tracing::info!(
             pokemon = entries.len(),
@@ -132,6 +146,7 @@ impl Dex {
             names,
             moves: move_data,
             icon_indexes,
+            icon_sheet,
         })
     }
 
@@ -166,8 +181,13 @@ impl Dex {
         entry.name.clone()
     }
 
-    /// Where a Pokémon's icon sits on Showdown's mini icon sheet (40×30 icons, 12 to a row,
-    /// linked from `app.css`), as a CSS background offset `(x, y)`.
+    /// The icon sheet served at `/sprites.png`, if it downloaded.
+    pub fn icon_sheet(&self) -> Option<Bytes> {
+        self.icon_sheet.clone()
+    }
+
+    /// Where a Pokémon's icon sits on the mini icon sheet, as a CSS background offset
+    /// `(x, y)`.
     /// Unknown names get Showdown's blank icon (index 0), like Showdown itself does.
     pub fn icon_offset(&self, name: &str) -> (u32, u32) {
         let id = to_id(name);
@@ -201,6 +221,17 @@ async fn fetch_url(http: &reqwest::Client, url: &str) -> Result<String> {
         .text()
         .await
         .with_context(|| format!("reading {url}"))
+}
+
+async fn fetch_icon_sheet(http: &reqwest::Client) -> Result<Bytes> {
+    http.get(SHOWDOWN_ICON_SHEET)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .context("downloading the icon sheet")?
+        .bytes()
+        .await
+        .context("reading the icon sheet")
 }
 
 async fn fetch_json(http: &reqwest::Client, file: &str) -> Result<Value> {
