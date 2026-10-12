@@ -145,7 +145,8 @@ connections from other machines.
 
 With the server running, `python scripts/screenshots.py` retakes every image in `docs/`. It
 needs Python 3 and Chrome or Edge, with no other packages. Set `CHROME` if the browser isn't
-found.
+found. Start the server with `SUPPORT_URL=https://ko-fi.com/pokechecks` so the screenshots show
+the support button like the live site.
 
 ## Data sources
 
