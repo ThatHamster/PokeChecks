@@ -24,7 +24,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use serde::Deserialize;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OnceCell, RwLock};
 
 use dex::Dex;
 use smogon::{Catalog, Meta};
@@ -43,10 +43,15 @@ struct AppState {
     /// Swapped for a fresh copy once a day by a background task.
     dex: RwLock<Arc<Dex>>,
     catalog: RwLock<Option<(Instant, Arc<Catalog>)>>,
+    /// Held while the catalog downloads, so visitors arriving meanwhile wait for that
+    /// download instead of starting their own.
+    catalog_refresh: Mutex<()>,
     /// Parsed usage keyed by `month/stem-cutoff`. Only the current month is kept: older
-    /// months are dropped when the catalog moves on.
-    metas: Mutex<HashMap<String, Arc<Meta>>>,
-    tournaments: Mutex<Option<(Instant, Arc<tournaments::Tournaments>)>>,
+    /// months are dropped when the catalog moves on. Each key's cell downloads once, however
+    /// many visitors ask for it at the same moment.
+    metas: Mutex<HashMap<String, Arc<OnceCell<Arc<Meta>>>>>,
+    tournaments: RwLock<Option<(Instant, Arc<tournaments::Tournaments>)>>,
+    tournaments_refresh: Mutex<()>,
 }
 
 impl AppState {
@@ -55,10 +60,13 @@ impl AppState {
     }
 
     async fn catalog(&self) -> Result<Arc<Catalog>> {
-        if let Some((at, cat)) = self.catalog.read().await.as_ref()
-            && at.elapsed() < CATALOG_TTL
-        {
-            return Ok(cat.clone());
+        if let Some(cat) = self.fresh_catalog().await {
+            return Ok(cat);
+        }
+        let _refreshing = self.catalog_refresh.lock().await;
+        // Someone else may have refreshed it while this visitor waited.
+        if let Some(cat) = self.fresh_catalog().await {
+            return Ok(cat);
         }
         let fresh = Arc::new(smogon::load_catalog(&self.http).await?);
         *self.catalog.write().await = Some((Instant::now(), fresh.clone()));
@@ -71,6 +79,12 @@ impl AppState {
         Ok(fresh)
     }
 
+    async fn fresh_catalog(&self) -> Option<Arc<Catalog>> {
+        let cached = self.catalog.read().await;
+        let (at, cat) = cached.as_ref()?;
+        (at.elapsed() < CATALOG_TTL).then(|| cat.clone())
+    }
+
     async fn meta(
         &self,
         catalog: &Catalog,
@@ -78,27 +92,44 @@ impl AppState {
         cutoff: u32,
     ) -> Result<Arc<Meta>> {
         let key = format!("{}/{}-{cutoff}", catalog.month, format.stem);
-        if let Some(m) = self.metas.lock().await.get(&key) {
-            return Ok(m.clone());
-        }
-        tracing::info!(%key, "downloading usage stats");
-        let dex = self.dex().await;
-        let meta = Arc::new(smogon::load_meta(&self.http, &dex, catalog, format, cutoff).await?);
-        self.metas.lock().await.insert(key, meta.clone());
-        Ok(meta)
+        let cell = self
+            .metas
+            .lock()
+            .await
+            .entry(key.clone())
+            .or_default()
+            .clone();
+        // The first visitor downloads; others wait for it. A failed download leaves the cell
+        // empty, so the next visitor tries again.
+        cell.get_or_try_init(|| async {
+            tracing::info!(%key, "downloading usage stats");
+            let dex = self.dex().await;
+            let meta = smogon::load_meta(&self.http, &dex, catalog, format, cutoff).await?;
+            Ok(Arc::new(meta))
+        })
+        .await
+        .cloned()
     }
 
     /// Tournament teams for the newest regulation with events. `fallback` is Smogon's
     /// regulation, used if Limitless's format list is unavailable.
     async fn tournaments(&self, fallback: &str) -> Result<Arc<tournaments::Tournaments>> {
-        if let Some((at, t)) = self.tournaments.lock().await.as_ref()
-            && at.elapsed() < TOURNAMENT_TTL
-        {
-            return Ok(t.clone());
+        if let Some(t) = self.fresh_tournaments().await {
+            return Ok(t);
+        }
+        let _refreshing = self.tournaments_refresh.lock().await;
+        if let Some(t) = self.fresh_tournaments().await {
+            return Ok(t);
         }
         let fresh = Arc::new(tournaments::load_current(&self.http, fallback).await?);
-        *self.tournaments.lock().await = Some((Instant::now(), fresh.clone()));
+        *self.tournaments.write().await = Some((Instant::now(), fresh.clone()));
         Ok(fresh)
+    }
+
+    async fn fresh_tournaments(&self) -> Option<Arc<tournaments::Tournaments>> {
+        let cached = self.tournaments.read().await;
+        let (at, t) = cached.as_ref()?;
+        (at.elapsed() < TOURNAMENT_TTL).then(|| t.clone())
     }
 }
 
@@ -635,8 +666,10 @@ async fn main() -> Result<()> {
         http,
         dex: RwLock::new(Arc::new(dex)),
         catalog: RwLock::new(None),
+        catalog_refresh: Mutex::new(()),
         metas: Mutex::new(HashMap::new()),
-        tournaments: Mutex::new(None),
+        tournaments: RwLock::new(None),
+        tournaments_refresh: Mutex::new(()),
     });
     tokio::spawn(refresh_dex(state.clone()));
 
