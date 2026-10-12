@@ -447,7 +447,7 @@ fn support_panel(url: &str, name: &str) -> Markup {
     html! {
         div.support-panel #support popover aria-label="Support PokeChecks" {
             div.support-head {
-                strong { "Support PokeChecks" }
+                strong { "Support PokeChecks " span.title-heart aria-hidden="true" { "♥" } }
                 button.close type="button" popovertarget="support" popovertargetaction="hide" aria-label="Close" { "×" }
             }
             p { "PokeChecks is free to use. Donations through Ko-fi help pay for hosting. Thank you!" }
