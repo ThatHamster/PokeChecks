@@ -106,6 +106,12 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
+## Screenshots for this README
+
+With the server running, `python scripts/screenshots.py` retakes every image in `docs/`. It
+needs Python 3 and Chrome or Edge, with no other packages. Set `CHROME` if the browser isn't
+found.
+
 ## Data sources
 
 - Usage: [Smogon usage stats](https://www.smogon.com/stats/), the monthly "chaos" files.
