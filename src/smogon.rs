@@ -103,6 +103,31 @@ pub struct Mon {
     pub moves: Vec<Share>,
     pub tera: Vec<Share>,
     pub teammates: Vec<String>,
+    /// The most common nature and stat point spread.
+    pub spread: Option<Spread>,
+    /// For each other Pokémon on the ladder, the share of this Pokémon's teams that include it.
+    pub pair_rates: HashMap<String, f64>,
+}
+
+/// A nature plus stat points (0–32 each) in HP/Atk/Def/SpA/SpD/Spe order.
+pub struct Spread {
+    pub nature: String,
+    pub points: [u16; 6],
+    /// Share of sets using exactly this spread.
+    pub pct: f64,
+}
+
+impl Spread {
+    /// Parses Smogon's `Adamant:32/32/0/0/2/0`.
+    fn parse(s: &str) -> Option<(String, [u16; 6])> {
+        let (nature, rest) = s.split_once(':')?;
+        let mut points = [0u16; 6];
+        let mut parts = rest.split('/');
+        for p in &mut points {
+            *p = parts.next()?.parse().ok()?;
+        }
+        Some((nature.to_owned(), points))
+    }
 }
 
 impl Mon {
@@ -193,6 +218,8 @@ struct RawMon {
     teammates: HashMap<String, f64>,
     #[serde(rename = "Tera Types", default)]
     tera: HashMap<String, f64>,
+    #[serde(rename = "Spreads", default)]
+    spreads: HashMap<String, f64>,
 }
 
 async fn get_text(http: &reqwest::Client, url: &str) -> Result<String> {
@@ -287,6 +314,7 @@ fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
     let mut ranked: Vec<(String, RawMon)> = current.data.into_iter().collect();
     ranked.sort_by(|a, b| b.1.usage.total_cmp(&a.1.usage).then_with(|| a.0.cmp(&b.0)));
     ranked.truncate(LADDER_SIZE);
+    let ladder: Vec<String> = ranked.iter().map(|(n, _)| n.clone()).collect();
 
     let named = |id: &str| dex.display_name(id);
     let tera_name = |id: &str| {
@@ -300,10 +328,28 @@ fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
         .enumerate()
         .map(|(i, (name, raw))| {
             // Every set has exactly one ability, so the ability total is the number of sets.
-            let sets: f64 = raw.abilities.values().sum();
+            let sets: f64 = raw.abilities.values().sum::<f64>().max(f64::MIN_POSITIVE);
+            let pair_rates = ladder
+                .iter()
+                .filter(|other| **other != name)
+                .filter_map(|other| raw.teammates.get(other).map(|c| (other.clone(), c / sets)))
+                .collect();
+            let spread = raw
+                .spreads
+                .iter()
+                .max_by(|a, b| a.1.total_cmp(b.1))
+                .and_then(|(s, count)| {
+                    Spread::parse(s).map(|(nature, points)| Spread {
+                        nature,
+                        points,
+                        pct: count / sets * 100.0,
+                    })
+                });
             let mut teammates: Vec<(String, f64)> = raw.teammates.into_iter().collect();
             teammates.sort_by(|a, b| b.1.total_cmp(&a.1));
             Mon {
+                spread,
+                pair_rates,
                 prev: prev
                     .and_then(|p| p.data.get(&name))
                     .map(|p| p.usage * 100.0),
@@ -394,6 +440,15 @@ mod tests {
             "gen9championsvgc2026regmz-1630.json gen9championsvgc2027rega-1630.json",
         );
         assert_eq!(f[0].stem, "gen9championsvgc2027rega");
+    }
+
+    #[test]
+    fn parses_stat_point_spreads() {
+        let (nature, points) = Spread::parse("Adamant:32/32/0/0/2/0").unwrap();
+        assert_eq!(nature, "Adamant");
+        assert_eq!(points, [32, 32, 0, 0, 2, 0]);
+        assert!(Spread::parse("Adamant:32/32/0").is_none());
+        assert!(Spread::parse("nonsense").is_none());
     }
 
     #[test]

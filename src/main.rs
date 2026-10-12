@@ -2,6 +2,8 @@
 
 mod dex;
 mod smogon;
+mod team;
+mod team_view;
 mod view;
 
 use std::collections::HashMap;
@@ -19,11 +21,10 @@ use tokio::sync::{Mutex, RwLock};
 
 use dex::Dex;
 use smogon::{Catalog, Meta};
-use view::{SortKey, Theme, ViewState};
+use view::{Page, SortKey, Theme, ViewState};
 
 /// How long to trust the list of months and regulations before asking Smogon again.
 const CATALOG_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-const CSS: &str = include_str!("../assets/app.css");
 
 struct AppState {
     http: reqwest::Client,
@@ -75,19 +76,40 @@ struct Params {
     #[serde(rename = "type")]
     ty: Option<String>,
     pick: Option<String>,
+    team: Option<String>,
 }
 
-async fn index(
+async fn usage_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Query(p): Query<Params>,
 ) -> Response {
+    respond(&state, Page::Usage, &headers, p).await
+}
+
+async fn builder_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(p): Query<Params>,
+) -> Response {
+    respond(&state, Page::Builder, &headers, p).await
+}
+
+async fn teams_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(p): Query<Params>,
+) -> Response {
+    respond(&state, Page::Teams, &headers, p).await
+}
+
+async fn respond(state: &AppState, page: Page, headers: &HeaderMap, p: Params) -> Response {
     let theme = headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .map(Theme::from_cookie_header)
         .unwrap_or_default();
-    match render_index(&state, p, theme).await {
+    match render(state, page, p, theme).await {
         Ok(html) => Html(html).into_response(),
         Err(err) => {
             tracing::error!("{err:#}");
@@ -133,7 +155,7 @@ fn safe_back(back: Option<&str>) -> &str {
     }
 }
 
-async fn render_index(state: &AppState, p: Params, theme: Theme) -> Result<String> {
+async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result<String> {
     let catalog = state.catalog().await?;
     let format = catalog.format(p.fmt.as_deref());
     let cut = p
@@ -179,7 +201,10 @@ async fn render_index(state: &AppState, p: Params, theme: Theme) -> Result<Strin
         }
     };
 
+    let team = parse_team(p.team.as_deref(), &meta, &state.dex);
+
     let vs = ViewState {
+        page,
         fmt: format.kind.key().to_owned(),
         cut: meta.cutoff,
         sort,
@@ -187,8 +212,29 @@ async fn render_index(state: &AppState, p: Params, theme: Theme) -> Result<Strin
         q: p.q.unwrap_or_default(),
         ty: p.ty.unwrap_or_default(),
         picks,
+        team,
     };
-    Ok(view::page(&catalog, format, &meta, &state.dex, &vs, theme).into_string())
+    let dex = &state.dex;
+    let html = match page {
+        Page::Usage => view::page(&catalog, format, &meta, dex, &vs, theme),
+        Page::Builder => team_view::builder_page(&catalog, format, &meta, dex, &vs, theme),
+        Page::Teams => team_view::teams_page(&catalog, format, &meta, dex, &vs, theme),
+    };
+    Ok(html.into_string())
+}
+
+/// Keeps team members that are on this ladder, dropping repeats, a second form of the
+/// same species, and anything past six.
+fn parse_team(list: Option<&str>, meta: &Meta, dex: &Dex) -> Vec<String> {
+    let mut team: Vec<&smogon::Mon> = Vec::new();
+    for name in list.unwrap_or("").split(',').map(str::trim) {
+        if let Some(m) = meta.mons.iter().find(|m| m.name == name)
+            && team::blocked(&team, name, dex).is_none()
+        {
+            team.push(m);
+        }
+    }
+    team.into_iter().map(|m| m.name.clone()).collect()
 }
 
 async fn stylesheet() -> impl IntoResponse {
@@ -197,7 +243,7 @@ async fn stylesheet() -> impl IntoResponse {
             (header::CONTENT_TYPE, "text/css; charset=utf-8"),
             (header::CACHE_CONTROL, "public, max-age=3600"),
         ],
-        CSS,
+        view::CSS,
     )
 }
 
@@ -234,7 +280,9 @@ async fn main() -> Result<()> {
     });
 
     let app = Router::new()
-        .route("/", get(index))
+        .route("/", get(usage_page))
+        .route("/builder", get(builder_page))
+        .route("/teams", get(teams_page))
         .route("/app.css", get(stylesheet))
         .route("/theme", get(set_theme))
         .with_state(state);

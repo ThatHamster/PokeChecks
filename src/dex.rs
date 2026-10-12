@@ -20,6 +20,9 @@ pub struct DexEntry {
     pub types: Vec<String>,
     /// HP, Atk, Def, SpA, SpD, Spe.
     pub stats: [u16; 6],
+    /// The species a form belongs to, e.g. `Salamence` for `Salamence-Mega`. Two forms of
+    /// one species can't share a team.
+    pub base_species: String,
 }
 
 impl DexEntry {
@@ -67,6 +70,11 @@ impl Dex {
         self.entries.get(&to_id(name))
     }
 
+    /// Base species for the duplicate-species rule; falls back to the name itself.
+    pub fn species<'a>(&'a self, name: &'a str) -> &'a str {
+        self.entry(name).map_or(name, |e| e.base_species.as_str())
+    }
+
     /// Turns a stats-file ID like `heavydutyboots` into `Heavy-Duty Boots`.
     pub fn display_name(&self, id: &str) -> String {
         self.names.get(id).cloned().unwrap_or_else(|| id.to_owned())
@@ -112,7 +120,20 @@ fn parse_pokedex(v: &Value) -> HashMap<String, DexEntry> {
                 stat("spd")?,
                 stat("spe")?,
             ];
-            Some((id.clone(), DexEntry { types, stats }))
+            let base_species = e
+                .get("baseSpecies")
+                .or_else(|| e.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or(id)
+                .to_owned();
+            Some((
+                id.clone(),
+                DexEntry {
+                    types,
+                    stats,
+                    base_species,
+                },
+            ))
         })
         .collect()
 }

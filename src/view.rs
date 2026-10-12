@@ -6,6 +6,16 @@ use maud::{DOCTYPE, Markup, html};
 use crate::dex::{Dex, DexEntry};
 use crate::smogon::{Catalog, FormatInfo, Meta, Mon, Share};
 
+pub const CSS: &str = include_str!("../assets/app.css");
+
+/// FNV-1a hash of the stylesheet, used to bust browser caches when it changes.
+static CSS_HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let hash = CSS.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    format!("{:08x}", hash >> 32)
+});
+
 /// The comparison panel holds at most this many Pokémon.
 pub const MAX_PICKS: usize = 4;
 const SLOTS: [&str; MAX_PICKS] = ["--s1", "--s2", "--s3", "--s4"];
@@ -53,9 +63,39 @@ impl SortKey {
     }
 }
 
+/// The site's three pages. They share one URL state, so switching pages keeps the
+/// format, comparison and team.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Usage,
+    Builder,
+    Teams,
+}
+
+impl Page {
+    const ALL: [Page; 3] = [Page::Usage, Page::Builder, Page::Teams];
+
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::Usage => "/",
+            Self::Builder => "/builder",
+            Self::Teams => "/teams",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Usage => "Usage",
+            Self::Builder => "Team builder",
+            Self::Teams => "Meta teams",
+        }
+    }
+}
+
 /// Everything the URL carries. Each link on the page is this state with one thing changed.
 #[derive(Clone)]
 pub struct ViewState {
+    pub page: Page,
     pub fmt: String,
     pub cut: u32,
     pub sort: SortKey,
@@ -63,10 +103,11 @@ pub struct ViewState {
     pub q: String,
     pub ty: String,
     pub picks: Vec<String>,
+    pub team: Vec<String>,
 }
 
 impl ViewState {
-    fn href(&self) -> String {
+    pub(crate) fn href(&self) -> String {
         let mut pairs: Vec<(&str, String)> = vec![
             ("fmt", self.fmt.clone()),
             ("cut", self.cut.to_string()),
@@ -80,10 +121,47 @@ impl ViewState {
             pairs.push(("type", self.ty.clone()));
         }
         pairs.push(("pick", self.picks.join(",")));
+        if !self.team.is_empty() {
+            pairs.push(("team", self.team.join(",")));
+        }
         format!(
-            "/?{}",
+            "{}?{}",
+            self.page.path(),
             serde_urlencoded::to_string(pairs).unwrap_or_default()
         )
+    }
+
+    pub(crate) fn on_page(&self, page: Page) -> Self {
+        Self {
+            page,
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn with_team(&self, team: Vec<String>) -> Self {
+        Self {
+            team,
+            ..self.clone()
+        }
+    }
+
+    /// Adds `name` to the team, or removes it if it's already there.
+    pub(crate) fn team_toggled(&self, name: &str) -> Self {
+        let mut team = self.team.clone();
+        if let Some(i) = team.iter().position(|p| p == name) {
+            team.remove(i);
+        } else if team.len() < crate::team::TEAM_SIZE {
+            team.push(name.to_owned());
+        }
+        self.with_team(team)
+    }
+
+    pub(crate) fn without_filters(&self) -> Self {
+        Self {
+            q: String::new(),
+            ty: String::new(),
+            ..self.clone()
+        }
     }
 
     fn toggled(&self, name: &str) -> Self {
@@ -201,63 +279,137 @@ pub fn page(
     theme: Theme,
 ) -> Markup {
     let regulation = &format.regulation;
+    let dek = html! {
+        "Pokémon Champions ranked usage for "
+        strong { "Regulation " (regulation) }
+        ", side by side with base stats. Pick up to four Pokémon from the usage list to compare their stats and most common sets."
+    };
     shell(
         &format!("Regulation {regulation}"),
         theme,
         html! {
-            header {
-                div {
-                    h1 { "Poke" span { "Checks" } }
-                    p.dek {
-                        "Pokémon Champions ranked usage for "
-                        strong { "Regulation " (regulation) }
-                        ", side by side with base stats. Pick up to four Pokémon from the usage list to compare their stats and most common sets."
-                    }
-                }
-                div.ladder-meta {
-                    div { span.label { "Month" } strong { (month_name(&catalog.month)) } }
-                    div { span.label { "Battles" } strong.num { (thousands(meta.battles)) } }
-                    div {
-                        span.label { "Rating cutoff" }
-                        nav.cutoffs aria-label="Rating cutoff" {
-                            @for &c in &format.cutoffs {
-                                a.cut href=(vs.with_cutoff(c).href()) aria-current=[(c == meta.cutoff).then_some("true")] {
-                                    span.num { (c) "+" }
-                                }
-                            }
-                        }
-                    }
-                    (theme_switch(theme, &vs.href()))
-                }
-            }
-
-            nav.tabs aria-label="Format" {
-                @for f in &catalog.formats {
-                    a.tab href=(vs.with_format(f).href()) aria-current=[(f.kind == format.kind).then_some("page")] {
-                        (f.kind.label()) " " small { (f.kind.style()) }
-                    }
-                }
-            }
-
+            (site_header(catalog, format, meta, vs, theme, dek))
             div.bench {
                 (ladder(catalog, meta, dex, vs))
                 (scout(catalog, format, meta, dex, vs))
             }
-
-            footer {
-                "Usage comes from the "
-                a href={ "https://www.smogon.com/stats/" (catalog.month) "/chaos/" } target="_blank" rel="noopener" {
-                    "Smogon usage stats for " (month_name(&catalog.month))
-                }
-                ", weighted by player rating at the cutoff you pick. PokeChecks always shows the newest Pokémon Champions regulation Smogon has published and checks for new stats every few hours. "
-                @if let Some(prev) = &catalog.prev_month {
-                    "“vs " (short_month(prev)) "” is the change in percentage points from " (month_name(prev))
-                    "; a format that did not exist then shows “new”. "
-                }
-                "Move figures are the share of sets that carry the move. Base stats and types come from Pokémon Showdown’s Pokédex data."
-            }
+            (site_footer(catalog))
         },
     )
+}
+
+/// Title, page links, intro, ladder facts, theme switch and format tabs.
+pub(crate) fn site_header(
+    catalog: &Catalog,
+    format: &FormatInfo,
+    meta: &Meta,
+    vs: &ViewState,
+    theme: Theme,
+    dek: Markup,
+) -> Markup {
+    html! {
+        header {
+            div {
+                h1 { "Poke" span { "Checks" } }
+                nav.pages aria-label="Pages" {
+                    @for p in Page::ALL {
+                        a href=(vs.on_page(p).href()) aria-current=[(p == vs.page).then_some("page")] { (p.label()) }
+                    }
+                }
+                p.dek { (dek) }
+            }
+            div.ladder-meta {
+                div { span.label { "Month" } strong { (month_name(&catalog.month)) } }
+                div { span.label { "Battles" } strong.num { (thousands(meta.battles)) } }
+                div {
+                    span.label { "Rating cutoff" }
+                    nav.cutoffs aria-label="Rating cutoff" {
+                        @for &c in &format.cutoffs {
+                            a.cut href=(vs.with_cutoff(c).href()) aria-current=[(c == meta.cutoff).then_some("true")] {
+                                span.num { (c) "+" }
+                            }
+                        }
+                    }
+                }
+                (theme_switch(theme, &vs.href()))
+            }
+        }
+
+        nav.tabs aria-label="Format" {
+            @for f in &catalog.formats {
+                a.tab href=(vs.with_format(f).href()) aria-current=[(f.kind == format.kind).then_some("page")] {
+                    (f.kind.label()) " " small { (f.kind.style()) }
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn site_footer(catalog: &Catalog) -> Markup {
+    html! {
+        footer {
+            "Usage comes from the "
+            a href={ "https://www.smogon.com/stats/" (catalog.month) "/chaos/" } target="_blank" rel="noopener" {
+                "Smogon usage stats for " (month_name(&catalog.month))
+            }
+            ", weighted by player rating at the cutoff you pick. PokeChecks always shows the newest Pokémon Champions regulation Smogon has published and checks for new stats every few hours. "
+            @if let Some(prev) = &catalog.prev_month {
+                "“vs " (short_month(prev)) "” is the change in percentage points from " (month_name(prev))
+                "; a format that did not exist then shows “new”. "
+            }
+            "Move figures are the share of sets that carry the move. Base stats and types come from Pokémon Showdown’s Pokédex data."
+        }
+    }
+}
+
+/// Search box and type filter. Hidden fields carry the rest of the state through the GET form.
+pub(crate) fn filter_form(meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
+    let mut types: Vec<&str> = meta
+        .mons
+        .iter()
+        .filter_map(|m| dex.entry(&m.name))
+        .flat_map(|e| e.types.iter().map(String::as_str))
+        .collect();
+    types.sort_unstable();
+    types.dedup();
+
+    html! {
+        form.filters method="get" action=(vs.page.path()) {
+            input type="hidden" name="fmt" value=(vs.fmt);
+            input type="hidden" name="cut" value=(vs.cut);
+            input type="hidden" name="sort" value=(vs.sort.as_str());
+            input type="hidden" name="dir" value=(if vs.desc { "desc" } else { "asc" });
+            input type="hidden" name="pick" value=(vs.picks.join(","));
+            @if !vs.team.is_empty() {
+                input type="hidden" name="team" value=(vs.team.join(","));
+            }
+            label.sr-only for="q" { "Search Pokémon" }
+            input #q type="search" name="q" value=(vs.q) placeholder="Search Pokémon" autocomplete="off";
+            label.sr-only for="type" { "Type" }
+            select #type name="type" {
+                option value="" selected[vs.ty.is_empty()] { "All types" }
+                @for t in &types {
+                    option value=(t) selected[vs.ty == *t] { (t) }
+                }
+            }
+            button.go type="submit" { "Filter" }
+            @if !vs.q.is_empty() || !vs.ty.is_empty() {
+                a.clear href=(vs.without_filters().href()) { "Clear" }
+            }
+        }
+    }
+}
+
+/// Ladder rows matching the search box and type filter, in ladder order.
+pub(crate) fn filtered<'a>(meta: &'a Meta, dex: &Dex, vs: &ViewState) -> Vec<&'a Mon> {
+    let query = vs.q.trim().to_lowercase();
+    meta.mons
+        .iter()
+        .filter(|m| query.is_empty() || m.name.to_lowercase().contains(&query))
+        .filter(|m| {
+            vs.ty.is_empty() || dex.entry(&m.name).is_some_and(|e| e.types.contains(&vs.ty))
+        })
+        .collect()
 }
 
 pub fn error_page(message: &str, theme: Theme) -> Markup {
@@ -278,7 +430,7 @@ pub fn error_page(message: &str, theme: Theme) -> Markup {
     )
 }
 
-fn shell(subtitle: &str, theme: Theme, body: Markup) -> Markup {
+pub(crate) fn shell(subtitle: &str, theme: Theme, body: Markup) -> Markup {
     let data_theme = match theme {
         Theme::System => None,
         Theme::Light | Theme::Dark => Some(theme.as_str()),
@@ -293,8 +445,8 @@ fn shell(subtitle: &str, theme: Theme, body: Markup) -> Markup {
                 link rel="preconnect" href="https://fonts.googleapis.com";
                 link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
                 link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap";
-                // The version in the URL makes browsers fetch the new stylesheet after an upgrade.
-                link rel="stylesheet" href=(concat!("/app.css?v=", env!("CARGO_PKG_VERSION")));
+                // The hash in the URL makes browsers fetch the stylesheet again whenever it changes.
+                link rel="stylesheet" href={ "/app.css?v=" (*CSS_HASH) };
             }
             body { div.wrap { (body) } }
         }
@@ -304,15 +456,7 @@ fn shell(subtitle: &str, theme: Theme, body: Markup) -> Markup {
 // ---------- usage ladder ----------
 
 fn ladder(catalog: &Catalog, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
-    let query = vs.q.trim().to_lowercase();
-    let mut rows: Vec<&Mon> = meta
-        .mons
-        .iter()
-        .filter(|m| query.is_empty() || m.name.to_lowercase().contains(&query))
-        .filter(|m| {
-            vs.ty.is_empty() || dex.entry(&m.name).is_some_and(|e| e.types.contains(&vs.ty))
-        })
-        .collect();
+    let mut rows = filtered(meta, dex, vs);
     rows.sort_by(|a, b| {
         let ord = match vs.sort {
             SortKey::Rank => a.rank.cmp(&b.rank),
@@ -327,15 +471,6 @@ fn ladder(catalog: &Catalog, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
         if vs.desc { ord.reverse() } else { ord }
     });
 
-    let mut types: Vec<&str> = meta
-        .mons
-        .iter()
-        .filter_map(|m| dex.entry(&m.name))
-        .flat_map(|e| e.types.iter().map(String::as_str))
-        .collect();
-    types.sort_unstable();
-    types.dedup();
-
     let max_usage = meta.mons.first().map_or(1.0, |m| m.usage);
     let full = vs.picks.len() >= MAX_PICKS;
     let change_label = catalog
@@ -347,26 +482,7 @@ fn ladder(catalog: &Catalog, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
         section.pane aria-labelledby="ladder-h" {
             div.pane-head {
                 h2 #ladder-h { "Usage ladder" }
-                form.filters method="get" action="/" {
-                    input type="hidden" name="fmt" value=(vs.fmt);
-                    input type="hidden" name="cut" value=(vs.cut);
-                    input type="hidden" name="sort" value=(vs.sort.as_str());
-                    input type="hidden" name="dir" value=(if vs.desc { "desc" } else { "asc" });
-                    input type="hidden" name="pick" value=(vs.picks.join(","));
-                    label.sr-only for="q" { "Search Pokémon" }
-                    input #q type="search" name="q" value=(vs.q) placeholder="Search Pokémon" autocomplete="off";
-                    label.sr-only for="type" { "Type" }
-                    select #type name="type" {
-                        option value="" selected[vs.ty.is_empty()] { "All types" }
-                        @for t in &types {
-                            option value=(t) selected[vs.ty == *t] { (t) }
-                        }
-                    }
-                    button.go type="submit" { "Filter" }
-                    @if !vs.q.is_empty() || !vs.ty.is_empty() {
-                        a.clear href=(ViewState { q: String::new(), ty: String::new(), ..vs.clone() }.href()) { "Clear" }
-                    }
-                }
+                (filter_form(meta, dex, vs))
             }
             div.table-scroll {
                 table {
@@ -551,6 +667,11 @@ fn card(m: &Mon, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &ViewState) ->
                     (delta(m))
                     span.sub { "rank " (m.rank) " in " (format.kind.label()) }
                 }
+                @if vs.team.contains(&m.name) {
+                    a.to-team href=(vs.on_page(Page::Builder).href()) { "On your team →" }
+                } @else if vs.team.len() < crate::team::TEAM_SIZE {
+                    a.to-team href=(vs.team_toggled(&m.name).on_page(Page::Builder).href()) { "Add to team →" }
+                }
             }
             (share_list("Ability", &m.abilities, 2))
             (share_list("Items", &m.items, 4))
@@ -573,7 +694,7 @@ fn card(m: &Mon, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &ViewState) ->
     }
 }
 
-fn share_list(label: &str, rows: &[Share], n: usize) -> Markup {
+pub(crate) fn share_list(label: &str, rows: &[Share], n: usize) -> Markup {
     html! {
         div.kv {
             span.label { (label) }
@@ -592,18 +713,23 @@ fn share_list(label: &str, rows: &[Share], n: usize) -> Markup {
 
 // ---------- small pieces ----------
 
-fn type_chips(entry: Option<&DexEntry>) -> Markup {
+pub(crate) fn type_chips(entry: Option<&DexEntry>) -> Markup {
     html! {
         span.types {
             @for t in entry.map(|e| e.types.as_slice()).unwrap_or_default() {
-                @let ink = if LIGHT_TYPES.contains(&t.as_str()) { "dark" } else { "light" };
+                @let ink = if is_light_type(t) { "dark" } else { "light" };
                 span class={ "ty ink-" (ink) } style=(format!("background:var(--ty-{})", t.to_lowercase())) { (t) }
             }
         }
     }
 }
 
-fn delta(m: &Mon) -> Markup {
+/// Whether a type's chip colour is light enough to need dark text.
+pub(crate) fn is_light_type(t: &str) -> bool {
+    LIGHT_TYPES.contains(&t)
+}
+
+pub(crate) fn delta(m: &Mon) -> Markup {
     match m.delta() {
         None => html! { span.delta.flat { "new" } },
         Some(d) if d.abs() < 0.05 => html! { span.delta.flat.num { "±0.0" } },
@@ -618,15 +744,15 @@ fn slot_style(vs: &ViewState, name: &str) -> String {
         .unwrap_or_default()
 }
 
-fn stat(dex: &Dex, name: &str, i: usize) -> u16 {
+pub(crate) fn stat(dex: &Dex, name: &str, i: usize) -> u16 {
     dex.entry(name).map_or(0, |e| e.stats[i])
 }
 
-fn bst(dex: &Dex, name: &str) -> u16 {
+pub(crate) fn bst(dex: &Dex, name: &str) -> u16 {
     dex.entry(name).map_or(0, DexEntry::bst)
 }
 
-fn thousands(n: u64) -> String {
+pub(crate) fn thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, c) in s.chars().enumerate() {
@@ -654,7 +780,7 @@ const MONTHS: [&str; 12] = [
 ];
 
 /// `2026-09` -> `September 2026`
-fn month_name(ym: &str) -> String {
+pub(crate) fn month_name(ym: &str) -> String {
     match ym.split_once('-') {
         Some((y, m)) => match m.parse::<usize>() {
             Ok(m @ 1..=12) => format!("{} {y}", MONTHS[m - 1]),
@@ -687,6 +813,7 @@ mod tests {
 
     fn state() -> ViewState {
         ViewState {
+            page: Page::Usage,
             fmt: "vgc".into(),
             cut: 1630,
             sort: SortKey::Rank,
@@ -694,7 +821,18 @@ mod tests {
             q: String::new(),
             ty: String::new(),
             picks: vec!["Rillaboom".into()],
+            team: vec![],
         }
+    }
+
+    #[test]
+    fn team_links_keep_the_rest_of_the_state() {
+        let v = state().team_toggled("Incineroar").on_page(Page::Builder);
+        assert_eq!(
+            v.href(),
+            "/builder?fmt=vgc&cut=1630&sort=rank&dir=asc&pick=Rillaboom&team=Incineroar"
+        );
+        assert!(v.team_toggled("Incineroar").team.is_empty());
     }
 
     #[test]
