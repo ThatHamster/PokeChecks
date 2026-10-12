@@ -29,20 +29,26 @@ use view::{Page, SortKey, Theme, ViewState};
 const CATALOG_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 /// How long to keep tournament teams before asking Limitless again.
 const TOURNAMENT_TTL: Duration = Duration::from_secs(3 * 60 * 60);
-
-type Events = Arc<Vec<tournaments::Event>>;
+/// How often to reload Showdown's Pokédex, and how soon to retry after a failed reload.
+const DEX_REFRESH: Duration = Duration::from_secs(24 * 60 * 60);
+const DEX_RETRY: Duration = Duration::from_secs(60 * 60);
 
 struct AppState {
     http: reqwest::Client,
-    dex: Dex,
+    /// Swapped for a fresh copy once a day by a background task.
+    dex: RwLock<Arc<Dex>>,
     catalog: RwLock<Option<(Instant, Arc<Catalog>)>>,
-    /// Parsed usage keyed by `month/stem-cutoff`. Published months never change, so entries never expire.
+    /// Parsed usage keyed by `month/stem-cutoff`. Only the current month is kept: older
+    /// months are dropped when the catalog moves on.
     metas: Mutex<HashMap<String, Arc<Meta>>>,
-    /// Tournament teams keyed by regulation, e.g. `M-C`.
-    events: Mutex<HashMap<String, (Instant, Events)>>,
+    tournaments: Mutex<Option<(Instant, Arc<tournaments::Tournaments>)>>,
 }
 
 impl AppState {
+    async fn dex(&self) -> Arc<Dex> {
+        self.dex.read().await.clone()
+    }
+
     async fn catalog(&self) -> Result<Arc<Catalog>> {
         if let Some((at, cat)) = self.catalog.read().await.as_ref()
             && at.elapsed() < CATALOG_TTL
@@ -51,6 +57,12 @@ impl AppState {
         }
         let fresh = Arc::new(smogon::load_catalog(&self.http).await?);
         *self.catalog.write().await = Some((Instant::now(), fresh.clone()));
+        // A new month makes earlier months' usage unreachable, so free it.
+        let prefix = format!("{}/", fresh.month);
+        self.metas
+            .lock()
+            .await
+            .retain(|key, _| key.starts_with(&prefix));
         Ok(fresh)
     }
 
@@ -65,24 +77,42 @@ impl AppState {
             return Ok(m.clone());
         }
         tracing::info!(%key, "downloading usage stats");
-        let meta =
-            Arc::new(smogon::load_meta(&self.http, &self.dex, catalog, format, cutoff).await?);
+        let dex = self.dex().await;
+        let meta = Arc::new(smogon::load_meta(&self.http, &dex, catalog, format, cutoff).await?);
         self.metas.lock().await.insert(key, meta.clone());
         Ok(meta)
     }
 
-    async fn events(&self, regulation: &str) -> Result<Events> {
-        if let Some((at, events)) = self.events.lock().await.get(regulation)
+    /// Tournament teams for the newest regulation with events. `fallback` is Smogon's
+    /// regulation, used if Limitless's format list is unavailable.
+    async fn tournaments(&self, fallback: &str) -> Result<Arc<tournaments::Tournaments>> {
+        if let Some((at, t)) = self.tournaments.lock().await.as_ref()
             && at.elapsed() < TOURNAMENT_TTL
         {
-            return Ok(events.clone());
+            return Ok(t.clone());
         }
-        let fresh = Arc::new(tournaments::load(&self.http, regulation).await?);
-        self.events
-            .lock()
-            .await
-            .insert(regulation.to_owned(), (Instant::now(), fresh.clone()));
+        let fresh = Arc::new(tournaments::load_current(&self.http, fallback).await?);
+        *self.tournaments.lock().await = Some((Instant::now(), fresh.clone()));
         Ok(fresh)
+    }
+}
+
+/// Reloads Showdown's Pokédex once a day so new Pokémon, forms and Megas appear without a
+/// restart. A failed reload keeps the current copy and tries again an hour later.
+async fn refresh_dex(state: Arc<AppState>) {
+    let mut wait = DEX_REFRESH;
+    loop {
+        tokio::time::sleep(wait).await;
+        match Dex::load(&state.http).await {
+            Ok(dex) => {
+                *state.dex.write().await = Arc::new(dex);
+                wait = DEX_REFRESH;
+            }
+            Err(err) => {
+                tracing::warn!("Pokédex reload failed, keeping the current copy: {err:#}");
+                wait = DEX_RETRY;
+            }
+        }
     }
 }
 
@@ -319,7 +349,9 @@ async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result
         }
     };
 
-    let mut team = parse_team(p.team.as_deref(), &meta, &state.dex);
+    let dex_handle = state.dex().await;
+    let dex = dex_handle.as_ref();
+    let mut team = parse_team(p.team.as_deref(), &meta, dex);
     let edit = if page == Page::Builder {
         edit_from_params(&p, &team)
     } else {
@@ -337,7 +369,6 @@ async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result
         picks,
         team: Vec::new(),
     };
-    let dex = &state.dex;
 
     let mut edit_error = None;
     match edit {
@@ -375,9 +406,9 @@ async fn render(state: &AppState, page: Page, p: Params, theme: Theme) -> Result
             let source = if format.kind == smogon::Kind::Bss {
                 tournament_view::Source::SinglesFormat
             } else {
-                match state.events(&format.regulation).await {
-                    Ok(events) => {
-                        loaded = events;
+                match state.tournaments(&format.regulation).await {
+                    Ok(t) => {
+                        loaded = t;
                         tournament_view::Source::Events(&loaded)
                     }
                     Err(err) => {
@@ -436,11 +467,12 @@ async fn main() -> Result<()> {
         .context("loading Pokémon Showdown dex data")?;
     let state = Arc::new(AppState {
         http,
-        dex,
+        dex: RwLock::new(Arc::new(dex)),
         catalog: RwLock::new(None),
         metas: Mutex::new(HashMap::new()),
-        events: Mutex::new(HashMap::new()),
+        tournaments: Mutex::new(None),
     });
+    tokio::spawn(refresh_dex(state.clone()));
 
     // Warm the default view so the first visitor doesn't wait on the download.
     let warm = state.clone();

@@ -94,6 +94,87 @@ struct LMon {
     attacks: Vec<String>,
 }
 
+/// Tournament teams plus the regulation they were played under.
+pub struct Tournaments {
+    pub regulation: String,
+    pub events: Vec<Event>,
+}
+
+/// How many regulations to try, newest first, before settling on one with no events.
+const REGULATIONS_TRIED: usize = 3;
+
+/// Top teams for the newest regulation that already has large events.
+///
+/// The regulation comes from Limitless's own format list rather than from Smogon. Smogon
+/// only publishes a month's usage after it ends, so a new regulation would otherwise reach
+/// this page about a month late. `fallback` (Smogon's regulation) is used if Limitless's
+/// list can't be read.
+pub async fn load_current(http: &reqwest::Client, fallback: &str) -> Result<Tournaments> {
+    let mut regulations = match regulations(http).await {
+        Ok(r) => r,
+        Err(err) => {
+            tracing::warn!("couldn't read Limitless formats, using {fallback}: {err:#}");
+            Vec::new()
+        }
+    };
+    if regulations.is_empty() {
+        regulations.push(fallback.to_owned());
+    }
+    let mut first_empty = None;
+    for regulation in regulations.into_iter().take(REGULATIONS_TRIED) {
+        let events = load(http, &regulation).await?;
+        if !events.is_empty() {
+            return Ok(Tournaments { regulation, events });
+        }
+        first_empty.get_or_insert(regulation);
+    }
+    Ok(Tournaments {
+        regulation: first_empty.unwrap_or_else(|| fallback.to_owned()),
+        events: Vec::new(),
+    })
+}
+
+#[derive(Deserialize)]
+struct LGame {
+    id: String,
+    #[serde(default)]
+    formats: serde_json::Map<String, Value>,
+}
+
+/// Pokémon Champions regulations Limitless knows about, newest first.
+async fn regulations(http: &reqwest::Client) -> Result<Vec<String>> {
+    let url = format!("{API}/games");
+    let games: Vec<LGame> = http
+        .get(&url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .with_context(|| format!("downloading {url}"))?
+        .json()
+        .await
+        .with_context(|| format!("parsing {url}"))?;
+    let formats = games
+        .into_iter()
+        .find(|g| g.id == "VGC")
+        .map(|g| g.formats.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    Ok(newest_regulations(formats))
+}
+
+/// Champions regulations are named like `M-C`; older Scarlet and Violet formats (`SVI`,
+/// `VGC23`) are skipped. Newer regulations sort later alphabetically.
+fn newest_regulations(formats: Vec<String>) -> Vec<String> {
+    let mut regs: Vec<String> = formats
+        .into_iter()
+        .filter(|f| {
+            let b = f.as_bytes();
+            b.len() == 3 && b[0].is_ascii_uppercase() && b[1] == b'-' && b[2].is_ascii_uppercase()
+        })
+        .collect();
+    regs.sort_unstable_by(|a, b| b.cmp(a));
+    regs
+}
+
 /// Top teams from the largest recent events for a regulation, newest event first.
 pub async fn load(http: &reqwest::Client, regulation: &str) -> Result<Vec<Event>> {
     let query = serde_urlencoded::to_string([
@@ -235,6 +316,17 @@ pub fn team_list_paste(team: &EntryTeam) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn picks_champions_regulations_newest_first() {
+        let formats = ["M-B", "SVI", "M-C", "VGC23", "23S2", "M-A", "N-A"]
+            .map(str::to_owned)
+            .to_vec();
+        assert_eq!(
+            newest_regulations(formats),
+            vec!["N-A", "M-C", "M-B", "M-A"]
+        );
+    }
 
     #[test]
     fn reads_a_limitless_standing() {

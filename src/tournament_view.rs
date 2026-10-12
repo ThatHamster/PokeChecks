@@ -4,12 +4,12 @@ use maud::{Markup, html};
 
 use crate::dex::Dex;
 use crate::smogon::{Catalog, FormatInfo, Kind, Meta};
-use crate::tournaments::{self, EntryTeam, Event};
+use crate::tournaments::{self, EntryTeam, Event, Tournaments};
 use crate::view::{Page, Theme, ViewState, shell, site_footer, site_header, type_chips};
 
 /// What the page could load: events, a reason there are none for this format, or an error.
 pub enum Source<'a> {
-    Events(&'a [Event]),
+    Events(&'a Tournaments),
     /// Limitless only runs VGC (doubles) events.
     SinglesFormat,
     Unavailable(String),
@@ -24,9 +24,15 @@ pub fn tournaments_page(
     theme: Theme,
     source: Source,
 ) -> Markup {
+    // Limitless picks up a new regulation as soon as events run under it; Smogon's usage
+    // stats only follow a month later.
+    let regulation = match &source {
+        Source::Events(t) => t.regulation.as_str(),
+        _ => format.regulation.as_str(),
+    };
     let dek = html! {
         "Top finishers from the largest recent "
-        strong { "Regulation " (format.regulation) }
+        strong { "Regulation " (regulation) }
         " events on "
         a href="https://play.limitlesstcg.com/tournaments?game=VGC" target="_blank" rel="noopener" { "Limitless" }
         ", the online tournament platform. These are the open team lists players submitted."
@@ -38,16 +44,23 @@ pub fn tournaments_page(
         html! {
             (site_header(catalog, format, meta, vs, theme, dek))
             @match source {
-                Source::Events(events) if !events.is_empty() => {
+                Source::Events(t) if !t.events.is_empty() => {
+                    @if t.regulation != format.regulation {
+                        p.note.page-note.warn-text {
+                            "These events are Regulation " (t.regulation) ", but usage stats are still Regulation " (format.regulation)
+                            " until Smogon publishes a month of " (t.regulation) " data. Pokémon new to " (t.regulation)
+                            " can’t be opened in the team builder until then."
+                        }
+                    }
                     p.note.page-note {
                         "Team lists don’t include stat points. “Open in team builder” fills them in with the most common spread for each Pokémon and nature, so check them before you play."
                     }
-                    @for e in events { (event_section(e, meta, dex, vs)) }
+                    @for e in &t.events { (event_section(e, meta, dex, vs)) }
                 }
-                Source::Events(_) => {
+                Source::Events(t) => {
                     section.pane.empty {
                         strong { "No large events yet" }
-                        "Limitless has no recent Regulation " (format.regulation) " events with 32 or more players and published team lists. Check back after this weekend’s tournaments."
+                        "Limitless has no recent Regulation " (t.regulation) " events with 32 or more players and published team lists. Check back after this weekend’s tournaments."
                     }
                 }
                 Source::SinglesFormat => {

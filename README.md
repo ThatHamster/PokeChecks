@@ -42,6 +42,22 @@ On first start it downloads Pokémon Showdown's Pokédex data, then fetches Smog
 as each format and rating cutoff is first viewed. It checks for a newer month or regulation
 every six hours, so a new regulation (such as M-D) appears without code changes.
 
+## How the data stays current
+
+While the server runs, it refreshes everything itself:
+
+- **Usage stats:** checks Smogon every 6 hours. Smogon publishes each month's stats in the
+  first days of the next month; earlier months are dropped from memory when a new one
+  appears.
+- **Tournament teams:** checks Limitless every 3 hours. The regulation comes from
+  Limitless's own format list, so a new regulation's events show up as soon as they're
+  played instead of waiting a month for Smogon.
+- **Pokédex:** reloads Showdown's data every 24 hours (retrying hourly if it fails), so new
+  Pokémon, forms and Megas appear without a restart.
+
+Refreshes happen on the first visit after each interval, so that visit can take a few
+seconds longer.
+
 ## Test
 
 ```
