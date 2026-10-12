@@ -8,8 +8,8 @@ Written in Rust (edition 2024, Rust 1.99) with Axum and Maud. Pages are rendered
 server and need no JavaScript. A System / Light / Dark switch in the header lets each
 visitor pick a theme, remembered in a cookie; System follows the device setting. The look
 is playful on purpose: polka-dot paper in light mode, a starry night in dark mode, sticker
-panels, bubbly type and a CSS Poké Ball logo. Animations switch off for visitors who
-prefer reduced motion.
+panels, bubbly type, a CSS Poké Ball logo, and a mini sprite beside every Pokémon's name.
+Animations switch off for visitors who prefer reduced motion.
 
 Every meta team and tournament team has a "How this team plays" section for newer players:
 a short starting plan (the team's main idea, a simple lead, which Pokémon to Mega Evolve,
@@ -110,6 +110,7 @@ cargo clippy --all-targets -- -D warnings
 
 - Usage: [Smogon usage stats](https://www.smogon.com/stats/), the monthly "chaos" files.
 - Base stats, types, and move, item and ability names: [Pokémon Showdown](https://play.pokemonshowdown.com/data/).
+- Pokémon mini sprites: Pokémon Showdown's icon sheet, loaded by the visitor's browser from Showdown.
 - Tournament teams: the [Limitless public API](https://docs.limitlesstcg.com/developer.html).
 
 ## License
