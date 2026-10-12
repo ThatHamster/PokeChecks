@@ -33,9 +33,16 @@ The pages share one URL, so links keep the format, comparison and team:
   most common set; items, abilities, natures, stat points, stat stages, weather, terrain,
   critical hits, screens, Helping Hand and doubles spread damage can all be changed. Shows
   the damage range, every roll and the KO chance, plus the attacker's other common moves.
-- **Speed tiers:** where a Pokémon's Speed sits against the top 80, at their common
-  spreads and their maximum, with Choice Scarf, Tailwind, stat stages, paralysis,
-  speed-doubling abilities, opponents' Tailwind or Icy Wind, and Trick Room.
+- **Speed tiers:** built for checking turn order mid-match. Your team comes from the team
+  builder or a saved team, at its real natures, Speed points and items; add the opponent's
+  Pokémon at team preview by typing part of a name. Both teams are sorted into one turn
+  order (reversed under Trick Room), with each opponent at its most common spread plus its
+  possible range, and close calls marked. Tailwind, Icy Wind, weather (for Swift Swim and
+  similar), Trick Room, Speed stages, paralysis, Choice Scarf and Unburden are one-tap
+  toggles. A second tab compares one Pokémon with the top 80.
+- **Saved teams:** the team builder can save up to 12 teams, kept in your browser as
+  cookies (no account, nothing stored on the server), and open them later or on the
+  Speed tiers page.
 - **Tournament teams:** top 4 open team lists from the largest recent events for the current
   regulation on [Limitless](https://play.limitlesstcg.com/tournaments?game=VGC), refreshed
   every three hours. Any team opens in the builder; team lists have no stat points, so the

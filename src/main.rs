@@ -4,6 +4,7 @@ mod calc;
 mod calc_view;
 mod dex;
 mod gameplan;
+mod saved;
 mod smogon;
 mod speed_view;
 mod team;
@@ -18,10 +19,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Form, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLock};
 
@@ -133,6 +134,8 @@ struct Params {
     ty: Option<String>,
     pick: Option<String>,
     team: Option<String>,
+    /// Confirmation after saving or deleting a team: `saved`, `deleted`, `full`, `empty`.
+    msg: Option<String>,
     // Set edit form (team builder): which slot, the button pressed, and the fields.
     edit: Option<String>,
     apply: Option<String>,
@@ -286,12 +289,10 @@ async fn respond(
     p: Params,
     extra: Extra,
 ) -> Response {
-    let theme = headers
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .map(Theme::from_cookie_header)
-        .unwrap_or_default();
-    match render(state, page, p, extra, theme).await {
+    let cookies = cookie_header(headers);
+    let theme = Theme::from_cookie_header(cookies);
+    let saved = saved::from_cookie_header(cookies);
+    match render(state, page, p, extra, theme, &saved).await {
         Ok(response) => response,
         Err(err) => {
             tracing::error!("{err:#}");
@@ -322,6 +323,82 @@ async fn set_theme(Query(p): Query<ThemeParams>) -> Response {
     ([(header::SET_COOKIE, cookie)], Redirect::to(back)).into_response()
 }
 
+fn cookie_header(headers: &HeaderMap) -> &str {
+    headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+}
+
+#[derive(Deserialize)]
+struct SaveForm {
+    name: Option<String>,
+    fmt: Option<String>,
+    team: Option<String>,
+    back: Option<String>,
+}
+
+/// Longest team name kept; longer names are cut.
+const TEAM_NAME_LIMIT: usize = 40;
+
+/// Saves the builder's team in a cookie, then returns to the page with a message.
+async fn save_team(headers: HeaderMap, Form(f): Form<SaveForm>) -> Response {
+    let back = safe_back(f.back.as_deref());
+    let team = f.team.unwrap_or_default();
+    if team.trim().is_empty() {
+        return Redirect::to(&with_message(back, "empty")).into_response();
+    }
+    let fmt = f.fmt.unwrap_or_default();
+    let name: String = f
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or("My team")
+        .chars()
+        .take(TEAM_NAME_LIMIT)
+        .collect();
+    let existing = saved::from_cookie_header(cookie_header(&headers));
+    let Some(slot) = saved::slot_for(&existing, &name, &fmt) else {
+        return Redirect::to(&with_message(back, "full")).into_response();
+    };
+    let team = saved::SavedTeam {
+        slot,
+        name,
+        fmt,
+        team,
+    };
+    (
+        [(header::SET_COOKIE, team.set_cookie())],
+        Redirect::to(&with_message(back, "saved")),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct DeleteForm {
+    slot: Option<usize>,
+    back: Option<String>,
+}
+
+async fn delete_team(Form(f): Form<DeleteForm>) -> Response {
+    let back = safe_back(f.back.as_deref());
+    match f.slot.filter(|s| *s < saved::MAX_SAVED) {
+        Some(slot) => (
+            [(header::SET_COOKIE, saved::delete_cookie(slot))],
+            Redirect::to(&with_message(back, "deleted")),
+        )
+            .into_response(),
+        None => Redirect::to(back).into_response(),
+    }
+}
+
+/// Adds `msg=…` to an on-site path so the page can confirm what happened.
+fn with_message(back: &str, msg: &str) -> String {
+    let sep = if back.contains('?') { '&' } else { '?' };
+    format!("{back}{sep}msg={msg}")
+}
+
 /// Only redirect to a path on this site, never to another host.
 fn safe_back(back: Option<&str>) -> &str {
     match back {
@@ -343,6 +420,7 @@ async fn render(
     p: Params,
     extra: Extra,
     theme: Theme,
+    saved: &[saved::SavedTeam],
 ) -> Result<Response> {
     let catalog = state.catalog().await?;
     let format = catalog.format(p.fmt.as_deref());
@@ -440,6 +518,8 @@ async fn render(
             &vs,
             theme,
             edit_error.as_ref(),
+            saved,
+            p.msg.as_deref(),
         ),
         Page::Teams => team_view::teams_page(&catalog, format, &meta, dex, &vs, theme),
         Page::Tournaments => {
@@ -473,11 +553,16 @@ async fn render(
                 Extra::Speed(s) => *s,
                 _ => speed_view::SpeedParams::default(),
             };
-            match speed_view::SpeedState::from_params(&params, &meta) {
-                Some(speed) => {
-                    speed_view::speed_page(&catalog, format, &meta, dex, &vs, theme, &speed)
+            if params.is_meta_mode() {
+                match speed_view::SpeedState::from_params(&params, &meta) {
+                    Some(speed) => {
+                        speed_view::speed_page(&catalog, format, &meta, dex, &vs, theme, &speed)
+                    }
+                    None => view::error_page("This format has no usage data yet.", theme),
                 }
-                None => view::error_page("This format has no usage data yet.", theme),
+            } else {
+                let state = speed_view::MatchState::from_params(&params, &meta, vs.team.len());
+                speed_view::match_page(&catalog, format, &meta, dex, &vs, theme, &state, saved)
             }
         }
     };
@@ -558,6 +643,8 @@ async fn main() -> Result<()> {
         .route("/speed", get(speed_page))
         .route("/app.css", get(stylesheet))
         .route("/theme", get(set_theme))
+        .route("/saved/save", post(save_team))
+        .route("/saved/delete", post(delete_team))
         .with_state(state);
 
     let port: u16 = std::env::var("PORT")

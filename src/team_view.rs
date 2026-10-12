@@ -4,6 +4,7 @@ use maud::{Markup, html};
 
 use crate::dex::Dex;
 use crate::gameplan::{self, GamePlan, PlanMon};
+use crate::saved::SavedTeam;
 use crate::smogon::{Catalog, FormatInfo, Kind, Meta, Mon, Share};
 use crate::team::{
     self, Blocked, Custom, MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, MOVE_SLOTS, Member, NATURES,
@@ -21,6 +22,7 @@ pub struct EditError {
     pub draft: Custom,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn builder_page(
     catalog: &Catalog,
     format: &FormatInfo,
@@ -29,6 +31,8 @@ pub fn builder_page(
     vs: &ViewState,
     theme: Theme,
     error: Option<&EditError>,
+    saved: &[SavedTeam],
+    msg: Option<&str>,
 ) -> Markup {
     let chosen: Vec<(&Mon, Option<&Custom>)> = vs
         .team
@@ -53,6 +57,8 @@ pub fn builder_page(
         theme,
         html! {
             (site_header(catalog, format, meta, vs, theme, dek))
+            (save_message(msg))
+            (saved_panel(catalog, vs, saved))
             div.bench {
                 (picker(meta, dex, vs, &members))
                 (team_panel(catalog, format, meta, dex, vs, &sets, error))
@@ -60,6 +66,78 @@ pub fn builder_page(
             (site_footer(catalog))
         },
     )
+}
+
+fn save_message(msg: Option<&str>) -> Markup {
+    let text = match msg {
+        Some("saved") => "Team saved. It’s stored in this browser, under Saved teams.",
+        Some("deleted") => "Saved team deleted.",
+        Some("full") => "You already have 12 saved teams. Delete one to save another.",
+        Some("empty") => "Add at least one Pokémon before saving.",
+        _ => return html! {},
+    };
+    let warn = matches!(msg, Some("full" | "empty"));
+    html! { p class={ "flash" @if warn { " warn" } } role="status" { (text) } }
+}
+
+/// Saving the current team, and the browser's saved teams.
+fn saved_panel(catalog: &Catalog, vs: &ViewState, saved: &[SavedTeam]) -> Markup {
+    let back = vs.href();
+    let default_name = vs
+        .team
+        .iter()
+        .take(2)
+        .map(|m| m.name.as_str())
+        .collect::<Vec<_>>()
+        .join(" + ");
+    html! {
+        section.pane.saved-pane aria-labelledby="saved-h" {
+            div.pane-head { h2 #saved-h { "Saved teams" } }
+            div.section.saved-body {
+                @if vs.team.is_empty() {
+                    p.note { "Add Pokémon to your team, then save it here to use it again later or on the Speed tiers page." }
+                } @else {
+                    form.save-form method="post" action="/saved/save" {
+                        input type="hidden" name="fmt" value=(vs.fmt);
+                        input type="hidden" name="team" value=(vs.team_param());
+                        input type="hidden" name="back" value=(back);
+                        label for="save-name" { "Team name" }
+                        div.preset-row {
+                            input #save-name type="text" name="name" maxlength="40" value=(default_name) autocomplete="off";
+                            button.go type="submit" { "Save team" }
+                        }
+                        p.note { "Saving with an existing name replaces that team. Teams are kept in this browser only." }
+                    }
+                }
+                @if saved.is_empty() {
+                    p.note { "No saved teams yet." }
+                } @else {
+                    ul.saved-list {
+                        @for t in saved {
+                            @let fmt_label = catalog.formats.iter().find(|f| f.kind.key() == t.fmt).map(|f| f.kind.label());
+                            @let load = ViewState { fmt: t.fmt.clone(), ..vs.clone() }.with_team(t.team.split(',').map(Member::decode).collect());
+                            li {
+                                div.saved-info {
+                                    strong { (t.name) }
+                                    @if let Some(l) = fmt_label { span.muted.small { " · " (l) } }
+                                    span.muted.small.block { (t.names().join(", ")) }
+                                }
+                                div.saved-actions {
+                                    a.mini href=(load.on_page(Page::Builder).href()) { "Open" }
+                                    a.mini href=(load.on_page(Page::Speed).href()) { "Check speeds" }
+                                    form method="post" action="/saved/delete" {
+                                        input type="hidden" name="slot" value=(t.slot);
+                                        input type="hidden" name="back" value=(back);
+                                        button.mini.remove-btn type="submit" aria-label={ "Delete " (t.name) } { "Delete" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn picker(meta: &Meta, dex: &Dex, vs: &ViewState, members: &[&Mon]) -> Markup {
