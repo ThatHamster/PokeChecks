@@ -1,6 +1,7 @@
 # PokeChecks
 
-**Live site: [pokechecks.onrender.com](https://pokechecks.onrender.com)**
+**Live site: [pokechecks.onrender.com](https://pokechecks.onrender.com)** · Free to use; if it
+helps you, you can [support it on Ko-fi](https://ko-fi.com/pokechecks) to cover hosting.
 
 Pokémon Champions ranked usage, side by side with base stats. Shows the newest Champions
 regulation that Smogon has published stats for (currently Regulation M-C) across VGC,
@@ -12,6 +13,11 @@ visitor pick a theme, remembered in a cookie; System follows the device setting.
 is playful on purpose: polka-dot paper in light mode, a starry night in dark mode, sticker
 panels, bubbly type, a CSS Poké Ball logo, and a mini sprite beside every Pokémon's name.
 Animations switch off for visitors who prefer reduced motion.
+
+A "Support PokeChecks" button in the header (and a link in the footer) opens Ko-fi's donation
+form in a small pop-up, so visitors can donate without leaving the page. It uses the
+browser's built-in popover, still with no JavaScript, and Ko-fi isn't contacted until someone
+opens it.
 
 Every meta team and tournament team has a "How this team plays" section for newer players:
 a short starting plan (the team's main idea, a simple lead, which Pokémon to Mega Evolve,
@@ -79,9 +85,16 @@ All shown in the dark theme.
 cargo run
 ```
 
-Then open http://127.0.0.1:3000. Set `PORT` to use another port.
+Then open http://127.0.0.1:3000. Optional settings, as environment variables:
 
-On first start it downloads Pokémon Showdown's Pokédex data, then fetches Smogon usage files
+- `PORT`: the port to listen on (default 3000).
+- `HOST`: the address to listen on (default `127.0.0.1`, this computer only; `0.0.0.0`
+  accepts connections from other machines).
+- `SUPPORT_URL`: a support page starting with `https://`. A Ko-fi page
+  (`https://ko-fi.com/name`) opens in the donation pop-up; any other page is a plain link.
+  Without it, the support button and link are hidden.
+
+On first start it downloads Pokémon Showdown's Pokédex data and icon sheet, then fetches Smogon usage files
 as each format and rating cutoff is first viewed. It checks for a newer month or regulation
 every six hours, so a new regulation (such as M-D) appears without code changes.
 
@@ -95,8 +108,8 @@ While the server runs, it refreshes everything itself:
 - **Tournament teams:** checks Limitless every 3 hours. The regulation comes from
   Limitless's own format list, so a new regulation's events show up as soon as they're
   played instead of waiting a month for Smogon.
-- **Pokédex:** reloads Showdown's data every 24 hours (retrying hourly if it fails), so new
-  Pokémon, forms and Megas appear without a restart.
+- **Pokédex and sprites:** reloads Showdown's data and icon sheet every 24 hours (retrying
+  hourly if it fails), so new Pokémon, forms and Megas appear without a restart.
 
 Refreshes happen on the first visit after each interval, so that visit can take a few
 seconds longer.
@@ -115,8 +128,9 @@ The repo is set up for [Render](https://render.com), which redeploys on every pu
 1. In the Render dashboard, choose **New → Blueprint** and pick this repository. Render reads
    `render.yaml` and creates a `pokechecks` web service on the Starter plan, built from the
    `Dockerfile`.
-2. When it asks for `SUPPORT_URL`, paste your Ko-fi or GitHub Sponsors page to show a
-   "Support PokeChecks" link in the footer, or leave it empty to hide the link.
+2. When it asks for `SUPPORT_URL`, paste your Ko-fi or GitHub Sponsors page to show the
+   "Support PokeChecks" button and footer link, or leave it empty to hide them. You can change
+   it later under the service's **Environment** settings.
 3. Wait for the first build (several minutes, as it compiles in release mode). The site is then
    at `https://pokechecks.onrender.com`, or similar if that name is taken.
 
@@ -144,3 +158,6 @@ found.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+PokeChecks is a free fan project, not affiliated with Nintendo, Game Freak, Creatures or
+The Pokémon Company. Pokémon and its names and images belong to them.
