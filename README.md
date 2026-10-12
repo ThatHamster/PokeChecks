@@ -13,6 +13,8 @@ a short starting plan (the team's main idea, a simple lead, which Pokémon to Me
 who does the damage) and what each Pokémon is there to do. It's worked out from the team's
 own moves, abilities and items, so it stays accurate as the teams change.
 
+![The meta teams page with the Archaludon + Pelipper rain team's game plan open, showing its five-step plan and each Pokémon's role](docs/game-plan.png)
+
 The pages share one URL, so links keep the format, comparison and team:
 
 - **Usage:** the ladder, sortable and filterable, with up to four Pokémon compared side by
