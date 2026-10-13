@@ -1,13 +1,10 @@
 //! PokeChecks: Pokémon Champions ranked usage next to base stats, served as plain HTML.
 
-mod calc;
 mod calc_view;
 mod dex;
-mod gameplan;
 mod saved;
 mod smogon;
 mod speed_view;
-mod team;
 mod team_view;
 mod tournament_view;
 mod tournaments;
@@ -29,7 +26,8 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, OnceCell, RwLock};
 
-use dex::Dex;
+use dex::{Dex, Sheets};
+pub use pokechecks_core::{calc, gameplan, team};
 use smogon::{Catalog, Meta};
 use view::{Page, SortKey, Theme, ViewState};
 
@@ -45,6 +43,8 @@ struct AppState {
     http: reqwest::Client,
     /// Swapped for a fresh copy once a day by a background task.
     dex: RwLock<Arc<Dex>>,
+    /// Reloaded along with the Dex.
+    sheets: RwLock<Arc<Sheets>>,
     catalog: RwLock<Option<(Instant, Arc<Catalog>)>>,
     /// Held while the catalog downloads, so visitors arriving meanwhile wait for that
     /// download instead of starting their own.
@@ -142,9 +142,10 @@ async fn refresh_dex(state: Arc<AppState>) {
     let mut wait = DEX_REFRESH;
     loop {
         tokio::time::sleep(wait).await;
-        match Dex::load(&state.http).await {
-            Ok(dex) => {
+        match dex::load(&state.http).await {
+            Ok((dex, sheets)) => {
                 *state.dex.write().await = Arc::new(dex);
+                *state.sheets.write().await = Arc::new(sheets);
                 wait = DEX_REFRESH;
             }
             Err(err) => {
@@ -789,12 +790,18 @@ async fn stylesheet() -> impl IntoResponse {
 
 /// The Pokémon icon sheet. Falls back to Showdown's copy if the download failed at startup.
 async fn sprites(State(state): State<Arc<AppState>>) -> Response {
-    sheet(state.dex().await.icon_sheet(), dex::SHOWDOWN_ICON_SHEET)
+    sheet(
+        state.sheets.read().await.icons.clone(),
+        dex::SHOWDOWN_ICON_SHEET,
+    )
 }
 
 /// The item icon sheet, with the same fallback.
 async fn item_sprites(State(state): State<Arc<AppState>>) -> Response {
-    sheet(state.dex().await.item_sheet(), dex::SHOWDOWN_ITEM_SHEET)
+    sheet(
+        state.sheets.read().await.items.clone(),
+        dex::SHOWDOWN_ITEM_SHEET,
+    )
 }
 
 fn sheet(png: Option<axum::body::Bytes>, fallback: &'static str) -> Response {
@@ -824,12 +831,13 @@ async fn main() -> Result<()> {
         .user_agent(concat!("PokeChecks/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(180))
         .build()?;
-    let dex = Dex::load(&http)
+    let (dex, sheets) = dex::load(&http)
         .await
         .context("loading Pokémon Showdown dex data")?;
     let state = Arc::new(AppState {
         http,
         dex: RwLock::new(Arc::new(dex)),
+        sheets: RwLock::new(Arc::new(sheets)),
         catalog: RwLock::new(None),
         catalog_refresh: Mutex::new(()),
         metas: Mutex::new(HashMap::new()),

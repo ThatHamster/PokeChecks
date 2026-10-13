@@ -1,0 +1,413 @@
+//! Finds the newest Pokémon Champions regulation in Smogon's monthly usage stats
+//! and turns its "chaos" JSON into ranked usage with common sets.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use regex::Regex;
+use serde::Deserialize;
+
+use crate::dex::Dex;
+
+/// How many Pokémon the usage ladder lists per format. Everything else is still loaded, so
+/// searching and tournament teams can reach less common Pokémon.
+pub const LADDER_SIZE: usize = 80;
+/// How many options each set field offers in the team builder.
+const OPTION_LIMIT: usize = 40;
+const SPREAD_LIMIT: usize = 10;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Kind {
+    Vgc,
+    VgcBo3,
+    Bss,
+}
+
+impl Kind {
+    pub fn key(self) -> &'static str {
+        match self {
+            Kind::Vgc => "vgc",
+            Kind::VgcBo3 => "vgc-bo3",
+            Kind::Bss => "bss",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Vgc => "VGC",
+            Kind::VgcBo3 => "VGC Best of 3",
+            Kind::Bss => "Battle Stadium Singles",
+        }
+    }
+
+    pub fn style(self) -> &'static str {
+        match self {
+            Kind::Vgc | Kind::VgcBo3 => "Doubles",
+            Kind::Bss => "Singles",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FormatInfo {
+    pub kind: Kind,
+    /// File name without the rating suffix, e.g. `gen9championsvgc2026regmc`.
+    pub stem: String,
+    /// Display form of the regulation, e.g. `M-C`.
+    pub regulation: String,
+    pub cutoffs: Vec<u32>,
+}
+
+impl FormatInfo {
+    /// 1630 is the middle ladder band Smogon publishes for these formats.
+    pub fn default_cutoff(&self) -> u32 {
+        if self.cutoffs.contains(&1630) {
+            1630
+        } else {
+            self.cutoffs
+                .iter()
+                .rev()
+                .nth(1)
+                .or(self.cutoffs.last())
+                .copied()
+                .unwrap_or(0)
+        }
+    }
+}
+
+pub struct Catalog {
+    pub month: String,
+    pub prev_month: Option<String>,
+    pub formats: Vec<FormatInfo>,
+}
+
+impl Catalog {
+    pub fn format(&self, key: Option<&str>) -> &FormatInfo {
+        key.and_then(|k| self.formats.iter().find(|f| f.kind.key() == k))
+            .unwrap_or(&self.formats[0])
+    }
+}
+
+pub struct Share {
+    pub name: String,
+    pub pct: f64,
+}
+
+pub struct Mon {
+    pub name: String,
+    pub rank: usize,
+    /// Weighted usage, in percent.
+    pub usage: f64,
+    /// Usage in the previous month, when the same format existed then.
+    pub prev: Option<f64>,
+    pub abilities: Vec<Share>,
+    pub items: Vec<Share>,
+    /// Share of sets that carry the move.
+    pub moves: Vec<Share>,
+    pub tera: Vec<Share>,
+    pub teammates: Vec<String>,
+    /// Most common natures with stat point spreads, best first.
+    pub spreads: Vec<Spread>,
+    /// Share of sets using each nature, best first.
+    pub natures: Vec<Share>,
+    /// For each other Pokémon on the ladder, the share of this Pokémon's teams that include it.
+    pub pair_rates: HashMap<String, f64>,
+}
+
+/// A nature plus stat points (0–32 each) in HP/Atk/Def/SpA/SpD/Spe order.
+pub struct Spread {
+    pub nature: String,
+    pub points: [u16; 6],
+    /// Share of sets using exactly this spread.
+    pub pct: f64,
+}
+
+impl Spread {
+    /// Parses Smogon's `Adamant:32/32/0/0/2/0`, which is also how forms send a preset.
+    pub fn parse(s: &str) -> Option<(String, [u16; 6])> {
+        let (nature, rest) = s.split_once(':')?;
+        let mut points = [0u16; 6];
+        let mut parts = rest.split('/');
+        for p in &mut points {
+            *p = parts.next()?.parse().ok()?;
+        }
+        Some((nature.to_owned(), points))
+    }
+}
+
+impl Mon {
+    pub fn top_spread(&self) -> Option<&Spread> {
+        self.spreads.first()
+    }
+
+    /// Change from last month in percentage points.
+    pub fn delta(&self) -> Option<f64> {
+        self.prev.map(|p| self.usage - p)
+    }
+}
+
+pub struct Meta {
+    pub battles: u64,
+    pub cutoff: u32,
+    pub mons: Vec<Mon>,
+}
+
+// ---------- Smogon file formats ----------
+
+/// One of Smogon's monthly "chaos" usage files.
+#[derive(Deserialize)]
+pub struct Chaos {
+    info: Info,
+    data: HashMap<String, RawMon>,
+}
+
+#[derive(Deserialize)]
+struct Info {
+    #[serde(rename = "number of battles")]
+    battles: u64,
+    cutoff: f64,
+}
+
+#[derive(Deserialize)]
+struct RawMon {
+    usage: f64,
+    #[serde(rename = "Abilities", default)]
+    abilities: HashMap<String, f64>,
+    #[serde(rename = "Items", default)]
+    items: HashMap<String, f64>,
+    #[serde(rename = "Moves", default)]
+    moves: HashMap<String, f64>,
+    #[serde(rename = "Teammates", default)]
+    teammates: HashMap<String, f64>,
+    #[serde(rename = "Tera Types", default)]
+    tera: HashMap<String, f64>,
+    #[serde(rename = "Spreads", default)]
+    spreads: HashMap<String, f64>,
+}
+
+/// Month directories (`2026-09`) in ascending order.
+pub fn parse_months(index_html: &str) -> Vec<String> {
+    let re = Regex::new(r#"href="(\d{4}-\d{2})/""#).expect("valid regex");
+    let set: BTreeSet<String> = re
+        .captures_iter(index_html)
+        .map(|c| c[1].to_owned())
+        .collect();
+    set.into_iter().collect()
+}
+
+/// Picks the newest regulation for each Champions format in a chaos directory listing.
+pub fn parse_champions(listing: &str) -> Vec<FormatInfo> {
+    let re = Regex::new(r"\b(gen9champions(?:vgc(\d{4})|bss)reg([a-z]+?)(bo3)?)-(\d+)\.json")
+        .expect("valid regex");
+
+    struct Newest {
+        /// (year, code length, code) so 2027 beats 2026 and `mc` beats `mb`.
+        version: (u32, usize, String),
+        stem: String,
+        reg: String,
+    }
+    let mut newest: BTreeMap<Kind, Newest> = BTreeMap::new();
+    let mut cutoffs: HashMap<String, BTreeSet<u32>> = HashMap::new();
+
+    for c in re.captures_iter(listing) {
+        let stem = c[1].to_owned();
+        let year: u32 = c.get(2).map_or(0, |y| y.as_str().parse().unwrap_or(0));
+        let reg = c[3].to_owned();
+        let kind = match (c.get(2).is_some(), c.get(4).is_some()) {
+            (true, false) => Kind::Vgc,
+            (true, true) => Kind::VgcBo3,
+            (false, false) => Kind::Bss,
+            (false, true) => continue,
+        };
+        let cutoff: u32 = c[5].parse().unwrap_or(0);
+        cutoffs.entry(stem.clone()).or_default().insert(cutoff);
+
+        let version = (year, reg.len(), reg.clone());
+        if newest.get(&kind).is_none_or(|n| version > n.version) {
+            newest.insert(kind, Newest { version, stem, reg });
+        }
+    }
+
+    newest
+        .into_iter()
+        .map(|(kind, Newest { stem, reg, .. })| FormatInfo {
+            kind,
+            regulation: regulation_label(&reg),
+            cutoffs: cutoffs
+                .remove(&stem)
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            stem,
+        })
+        .collect()
+}
+
+/// `mc` -> `M-C`
+fn regulation_label(code: &str) -> String {
+    code.chars()
+        .map(|c| c.to_ascii_uppercase().to_string())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+pub fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
+    let mut ranked: Vec<(String, RawMon)> = current.data.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.usage.total_cmp(&a.1.usage).then_with(|| a.0.cmp(&b.0)));
+    ranked.retain(|(_, raw)| raw.usage > 0.0);
+    let ladder: std::collections::HashSet<String> = ranked.iter().map(|(n, _)| n.clone()).collect();
+
+    let named = |id: &str| dex.display_name(id);
+    let tera_name = |id: &str| {
+        let mut c = id.chars();
+        c.next()
+            .map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
+    };
+
+    let mons = ranked
+        .into_iter()
+        .enumerate()
+        .map(|(i, (name, raw))| {
+            // Every set has exactly one ability, so the ability total is the number of sets.
+            let sets: f64 = raw.abilities.values().sum::<f64>().max(f64::MIN_POSITIVE);
+            let pair_rates = raw
+                .teammates
+                .iter()
+                .filter(|(other, _)| **other != name && ladder.contains(*other))
+                .map(|(other, c)| (other.clone(), c / sets))
+                .collect();
+
+            let mut parsed: Vec<(String, [u16; 6], f64)> = raw
+                .spreads
+                .iter()
+                .filter_map(|(s, count)| Spread::parse(s).map(|(n, p)| (n, p, *count)))
+                .collect();
+            parsed.sort_by(|a, b| b.2.total_cmp(&a.2));
+            let mut nature_counts: HashMap<String, f64> = HashMap::new();
+            for (n, _, count) in &parsed {
+                *nature_counts.entry(n.clone()).or_default() += count;
+            }
+            let natures = top_shares(&nature_counts, 25, Some(sets), str::to_owned);
+            let spreads = parsed
+                .into_iter()
+                .take(SPREAD_LIMIT)
+                .map(|(nature, points, count)| Spread {
+                    nature,
+                    points,
+                    pct: count / sets * 100.0,
+                })
+                .collect();
+
+            let mut teammates: Vec<(String, f64)> = raw.teammates.into_iter().collect();
+            teammates.sort_by(|a, b| b.1.total_cmp(&a.1));
+            Mon {
+                spreads,
+                natures,
+                pair_rates,
+                prev: prev
+                    .and_then(|p| p.data.get(&name))
+                    .map(|p| p.usage * 100.0),
+                rank: i + 1,
+                usage: raw.usage * 100.0,
+                abilities: top_shares(&raw.abilities, 6, None, named),
+                items: top_shares(&raw.items, OPTION_LIMIT, None, named),
+                moves: top_shares(&raw.moves, OPTION_LIMIT, Some(sets), named),
+                tera: top_shares(&raw.tera, 4, None, tera_name),
+                teammates: teammates.into_iter().take(6).map(|(n, _)| n).collect(),
+                name,
+            }
+        })
+        .collect();
+
+    Meta {
+        battles: current.info.battles,
+        cutoff: current.info.cutoff as u32,
+        mons,
+    }
+}
+
+fn top_shares(
+    counts: &HashMap<String, f64>,
+    n: usize,
+    total: Option<f64>,
+    name: impl Fn(&str) -> String,
+) -> Vec<Share> {
+    let total = total
+        .unwrap_or_else(|| counts.values().sum())
+        .max(f64::MIN_POSITIVE);
+    let mut v: Vec<(&String, &f64)> = counts
+        .iter()
+        .filter(|(k, _)| !k.is_empty() && k.as_str() != "nothing")
+        .collect();
+    v.sort_by(|a, b| b.1.total_cmp(a.1));
+    v.into_iter()
+        .take(n)
+        .map(|(k, c)| Share {
+            name: name(k),
+            pct: c / total * 100.0,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LISTING: &str = r#"
+        <a href="gen9championsbssregmb-1630.json">x</a>
+        <a href="gen9championsbssregmc-0.json">x</a>
+        <a href="gen9championsbssregmc-1630.json">x</a>
+        <a href="gen9championsbssregmc-1760.json">x</a>
+        <a href="gen9championsou-1630.json">x</a>
+        <a href="gen9championsvgc2026regmb-1630.json">x</a>
+        <a href="gen9championsvgc2026regmbbo3-1630.json">x</a>
+        <a href="gen9championsvgc2026regmc-1500.json">x</a>
+        <a href="gen9championsvgc2026regmc-1630.json">x</a>
+        <a href="gen9championsvgc2026regmcbo3-1630.json">x</a>
+        <a href="championsvgc2026regmc-1630.json">x</a>
+        <a href="gen9ou-1695.json">x</a>
+    "#;
+
+    #[test]
+    fn picks_newest_regulation_per_format() {
+        let f = parse_champions(LISTING);
+        let got: Vec<_> = f
+            .iter()
+            .map(|f| (f.kind, f.stem.as_str(), f.regulation.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                (Kind::Vgc, "gen9championsvgc2026regmc", "M-C"),
+                (Kind::VgcBo3, "gen9championsvgc2026regmcbo3", "M-C"),
+                (Kind::Bss, "gen9championsbssregmc", "M-C"),
+            ]
+        );
+        assert_eq!(f[0].cutoffs, vec![1500, 1630]);
+        assert_eq!(f[2].cutoffs, vec![0, 1630, 1760]);
+        assert_eq!(f[2].default_cutoff(), 1630);
+    }
+
+    #[test]
+    fn newer_year_beats_later_letter() {
+        let f = parse_champions(
+            "gen9championsvgc2026regmz-1630.json gen9championsvgc2027rega-1630.json",
+        );
+        assert_eq!(f[0].stem, "gen9championsvgc2027rega");
+    }
+
+    #[test]
+    fn parses_stat_point_spreads() {
+        let (nature, points) = Spread::parse("Adamant:32/32/0/0/2/0").unwrap();
+        assert_eq!(nature, "Adamant");
+        assert_eq!(points, [32, 32, 0, 0, 2, 0]);
+        assert!(Spread::parse("Adamant:32/32/0").is_none());
+        assert!(Spread::parse("nonsense").is_none());
+    }
+
+    #[test]
+    fn months_are_sorted() {
+        let html =
+            r#"<a href="2026-09/">2026-09/</a><a href="2025-12/">x</a><a href="2026-10/">x</a>"#;
+        assert_eq!(parse_months(html), vec!["2025-12", "2026-09", "2026-10"]);
+    }
+}

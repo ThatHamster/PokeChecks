@@ -143,11 +143,19 @@ While the server runs, it refreshes everything itself:
 Refreshes happen on the first visit after each interval, so that visit can take a few
 seconds longer.
 
+## Code layout
+
+The repo is a Cargo workspace. `crates/core` (`pokechecks-core`) holds the data types and
+battle logic: the Pokédex, usage stats, tournament team lists, the damage calc, team
+building and game plans. It does no networking and renders no HTML, so the server and the
+mobile app (through WebAssembly) can share it. The server in `src/` downloads the data and
+renders the pages.
+
 ## Test
 
 ```
-cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 ## Load test

@@ -7,10 +7,14 @@ description = "Pokémon Champions ranked usage compared side by side with base s
 license = "MIT"
 publish = false
 
+[workspace]
+members = ["crates/core"]
+
 [dependencies]
 anyhow = "1.0.104"
 axum = "0.8.9"
 maud = "0.27.0"
+pokechecks-core = { path = "crates/core" }
 regex = "1.13.1"
 # native-tls uses Windows SChannel / macOS Security / OpenSSL, so no extra C toolchain is needed.
 reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "json", "gzip", "http2"] }
