@@ -185,3 +185,50 @@ export interface ImportResult {
   members: Member[];
   missing: string[];
 }
+
+// ---------- Speed tiers ----------
+
+export interface Foe {
+  name: string;
+  stage: number;
+  paralyzed: boolean;
+  /** Assume it holds a Choice Scarf. */
+  scarf: boolean;
+  /** Unburden has triggered. */
+  unburden: boolean;
+}
+
+/** Changes marked on one of your own Pokémon, by team slot. */
+export interface Mine {
+  stage: number;
+  paralyzed: boolean;
+  unburden: boolean;
+}
+
+export interface MatchState {
+  foes: Foe[];
+  mine: Mine[];
+  trick_room: boolean;
+  my_tailwind: boolean;
+  foe_tailwind: boolean;
+  /** −1 Speed on that whole side, as after Icy Wind or Electroweb. */
+  my_drop: boolean;
+  foe_drop: boolean;
+  weather: WeatherKey | null;
+}
+
+export interface Runner {
+  side: 'mine' | 'foe';
+  name: string;
+  speed: number;
+  /** An opponent's slowest and fastest possible Speed with the same effects. */
+  range: [number, number] | null;
+  effects: string[];
+  tie: boolean;
+  /** Your Pokémon this opponent could move before or after, depending on its spread. */
+  close: string[];
+}
+
+export function turnOrder(engine: Engine, format: FormatKey, members: Member[], state: MatchState): Runner[] {
+  return engine.turnOrder(format, members, state) as Runner[];
+}

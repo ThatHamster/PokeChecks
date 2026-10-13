@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { setCalc, useCalcState } from '../data/calc';
+import { setCalc, updateCalc, useCalcState } from '../data/calc';
 import {
   STAT_LABELS,
   calcStart,
@@ -98,9 +98,11 @@ export function CalcScreen() {
   }
 
   const monByName = new Map(meta.mons.map((m) => [m.name, m]));
-  const update = (patch: Partial<CalcRequest>) => setCalc(format, { ...req, ...patch });
-  const setField = (patch: Partial<FieldInput>) => update({ field: { ...req.field, ...patch } });
-  const setSide = (side: Side, patch: Partial<SideInput>) => update({ [side]: { ...req[side], ...patch } });
+  // Every change starts from the latest calc, not this render's copy.
+  const update = (patch: Partial<CalcRequest>) => updateCalc(format, (r) => ({ ...r, ...patch }));
+  const setField = (patch: Partial<FieldInput>) => updateCalc(format, (r) => ({ ...r, field: { ...r.field, ...patch } }));
+  const setSide = (side: Side, patch: Partial<SideInput> | ((s: SideInput) => Partial<SideInput>)) =>
+    updateCalc(format, (r) => ({ ...r, [side]: { ...r[side], ...(typeof patch === 'function' ? patch(r[side]) : patch) } }));
 
   /** A new Pokémon on one side opens on its most common set; weather and terrain follow its ability. */
   const pick = (side: Side, name: string) => {
@@ -167,8 +169,8 @@ export function CalcScreen() {
           stats={result?.attacker_stats}
           onPick={() => setSheet({ kind: 'pick', side: 'attacker' })}
           onEdit={() => setSheet({ kind: 'edit', side: 'attacker' })}
-          onBoost={(boost) => setSide('attacker', { boost })}
-          onBurn={(burned) => setSide('attacker', { burned })}
+          onBoost={(d) => setSide('attacker', (x) => ({ boost: Math.max(-6, Math.min(6, x.boost + d)) }))}
+          onBurn={() => setSide('attacker', (x) => ({ burned: !x.burned }))}
         />
         <button className="swap" aria-label="Swap attacker and defender" onClick={swap}>
           ⇅
@@ -179,7 +181,7 @@ export function CalcScreen() {
           stats={result?.defender_stats}
           onPick={() => setSheet({ kind: 'pick', side: 'defender' })}
           onEdit={() => setSheet({ kind: 'edit', side: 'defender' })}
-          onBoost={(boost) => setSide('defender', { boost })}
+          onBoost={(d) => setSide('defender', (x) => ({ boost: Math.max(-6, Math.min(6, x.boost + d)) }))}
         />
       </div>
 
@@ -297,8 +299,9 @@ function SideCard({
   stats?: number[];
   onPick: () => void;
   onEdit: () => void;
-  onBoost: (boost: number) => void;
-  onBurn?: (burned: boolean) => void;
+  /** Gets the step, −1 or +1. */
+  onBoost: (delta: number) => void;
+  onBurn?: () => void;
 }) {
   const points = side.points.map((p, i) => (p ? `${p} ${STAT_LABELS[i]}` : null)).filter(Boolean).join(' / ') || 'No points';
   return (
@@ -331,16 +334,16 @@ function SideCard({
       </p>
       <div className="side-actions">
         <div className="stage" aria-label={`${label} stat stage`}>
-          <button aria-label="Lower stat stage" disabled={side.boost <= -6} onClick={() => onBoost(side.boost - 1)}>
+          <button aria-label="Lower stat stage" disabled={side.boost <= -6} onClick={() => onBoost(-1)}>
             −
           </button>
           <span className="num strong">{side.boost > 0 ? `+${side.boost}` : side.boost < 0 ? `−${-side.boost}` : '±0'}</span>
-          <button aria-label="Raise stat stage" disabled={side.boost >= 6} onClick={() => onBoost(side.boost + 1)}>
+          <button aria-label="Raise stat stage" disabled={side.boost >= 6} onClick={() => onBoost(1)}>
             +
           </button>
         </div>
         {onBurn && (
-          <button className="mini" aria-pressed={side.burned} onClick={() => onBurn(!side.burned)}>
+          <button className="mini" aria-pressed={side.burned} onClick={() => onBurn()}>
             {side.burned ? 'Burned' : 'Burn'}
           </button>
         )}

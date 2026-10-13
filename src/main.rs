@@ -750,7 +750,7 @@ async fn render(
                     None => view::error_page("This format has no usage data yet.", theme),
                 }
             } else {
-                let state = speed_view::MatchState::from_params(&params, &meta, vs.team.len());
+                let state = speed_view::match_from_params(&params, &meta, vs.team.len());
                 speed_view::match_page(&catalog, format, &meta, dex, &vs, theme, &state, saved)
             }
         }

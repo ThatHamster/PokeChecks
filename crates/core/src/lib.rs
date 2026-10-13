@@ -6,5 +6,6 @@ pub mod calc;
 pub mod dex;
 pub mod gameplan;
 pub mod smogon;
+pub mod speed;
 pub mod team;
 pub mod tournaments;

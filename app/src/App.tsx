@@ -6,13 +6,15 @@ import { refresh, start, useData } from './data/store';
 import { AboutScreen } from './ui/AboutScreen';
 import { BuilderScreen } from './ui/BuilderScreen';
 import { CalcScreen } from './ui/CalcScreen';
+import { SpeedScreen } from './ui/SpeedScreen';
 import { TeamsScreen } from './ui/TeamsScreen';
 import { closeTopSheet } from './ui/Sheet';
 import { UsageScreen } from './ui/UsageScreen';
 import { Ball } from './ui/bits';
 import { ErrorBoundary } from './ui/ErrorBoundary';
 
-type Tab = 'usage' | 'builder' | 'calc' | 'teams' | 'about';
+/** About isn't in the tab bar; Usage's corner button opens it. */
+type Tab = 'usage' | 'builder' | 'calc' | 'speed' | 'teams' | 'about';
 
 const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
   {
@@ -48,20 +50,20 @@ const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
     ),
   },
   {
+    key: 'speed',
+    label: 'Speed',
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22">
+        <path d="M12 4a9 9 0 0 0-9 9 8.9 8.9 0 0 0 1.4 4.8h15.2A8.9 8.9 0 0 0 21 13a9 9 0 0 0-9-9zm4.6 4.2-3.3 5.5a1.6 1.6 0 1 1-2.6-1.5z" />
+      </svg>
+    ),
+  },
+  {
     key: 'teams',
     label: 'Teams',
     icon: (
       <svg viewBox="0 0 24 24" width="22" height="22">
         <path d="M6 3h12v3a4 4 0 0 1-3 3.9V12a3 3 0 0 1-2 2.8V18h3v3H8v-3h3v-3.2A3 3 0 0 1 9 12V9.9A4 4 0 0 1 6 6zM3 5h2v2a2 2 0 0 0 1 1.7v2.1A4 4 0 0 1 3 7zm18 0v2a4 4 0 0 1-3 3.8V8.7A2 2 0 0 0 19 7V5z" />
-      </svg>
-    ),
-  },
-  {
-    key: 'about',
-    label: 'About',
-    icon: (
-      <svg viewBox="0 0 24 24" width="22" height="22">
-        <path d="M12 2.5l2.6 6.3 6.9.6-5.2 4.5 1.6 6.7L12 17l-5.9 3.6 1.6-6.7L2.5 9.4l6.9-.6z" />
       </svg>
     ),
   },
@@ -129,9 +131,10 @@ export function App() {
       )}
       {offline && !outdated && <p className="banner">Offline · showing your saved stats</p>}
       <ErrorBoundary key={tab}>
-        {tab === 'usage' && <UsageScreen onOpenBuilder={() => setTab('builder')} />}
+        {tab === 'usage' && <UsageScreen onOpenBuilder={() => setTab('builder')} onOpenAbout={() => setTab('about')} />}
         {tab === 'builder' && <BuilderScreen onOpenCalc={() => setTab('calc')} />}
         {tab === 'calc' && <CalcScreen />}
+        {tab === 'speed' && <SpeedScreen onOpenBuilder={() => setTab('builder')} />}
         {tab === 'teams' && <TeamsScreen onOpenBuilder={() => setTab('builder')} />}
         {tab === 'about' && <AboutScreen />}
       </ErrorBoundary>
