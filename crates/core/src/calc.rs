@@ -9,7 +9,8 @@ use crate::dex::{Category, Dex, MoveData};
 use crate::smogon::Mon;
 use crate::team::{STAT_LABELS, level50_stat, multiplier, nature_effect};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Weather {
     Sun,
     Rain,

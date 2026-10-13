@@ -479,6 +479,43 @@ body.sheet-open { overflow: hidden; }
 .tabbar { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); transform: none; max-width: 520px; margin: 0 auto; }
 .tabbar button { flex: 1; min-width: 0; font-size: 11.5px; }
 
+.masthead { position: relative; }
+.about-btn {
+  position: absolute; top: 2px; right: 0; width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--edge);
+  background: var(--panel); font-family: var(--f-display); font-size: 18px; font-weight: 700; color: var(--accent);
+  box-shadow: 2px 2px 0 var(--drop); transition: transform .25s var(--bounce);
+}
+.about-btn:active { transform: scale(.9) rotate(-12deg); }
+
+/* ---------- Speed tiers ---------- */
+.turn-order { list-style: none; margin: 0; padding: 6px 12px; display: flex; flex-direction: column; gap: 6px; }
+.runner {
+  display: grid; grid-template-columns: 26px 36px 1fr auto; align-items: center; gap: 6px; padding: 8px 8px 8px 6px;
+  border-radius: 14px; border: 2px solid var(--line); background: var(--panel); animation: row-in .4s var(--bounce) both;
+}
+.runner.mine { border-color: var(--accent); background: var(--sunk); }
+.runner.foe { border-color: var(--pink); }
+.place { font-family: var(--f-display); font-size: 17px; color: var(--muted); text-align: center; }
+.runner-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.runner-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.runner-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-chip { flex: none; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: 1px 7px; border-radius: 999px; color: #fff; }
+.side-chip.mine { background: var(--accent); color: var(--on-accent); }
+.side-chip.foe { background: var(--pink); color: #2b2045; }
+.runner-notes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.runner-notes .note-tag { font-size: 11px; padding: 1px 8px; }
+.note-tag.tie { border-style: solid; border-color: var(--pop); background: var(--pop); color: #2b2045; }
+.close-call { color: var(--down); font-weight: 700; }
+.runner-speed { font-family: var(--f-display); font-size: 24px; font-weight: 700; min-width: 2.2em; text-align: right; }
+.pair-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pair-row .label { width: 100%; }
+.speed-list { list-style: none; margin: 0; padding: 4px 14px; display: flex; flex-direction: column; }
+.speed-list li { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.speed-list li:last-child { border-bottom: 0; }
+.speed-mon { display: flex; align-items: center; gap: 8px; }
+.speed-mods { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.add-row { display: block; margin: 4px 14px 14px; width: calc(100% - 28px); }
+
 /* ---------- Tournament teams ---------- */
 .standalone { margin: 0; }
 p.pane-note.standalone { padding: 0 4px; }

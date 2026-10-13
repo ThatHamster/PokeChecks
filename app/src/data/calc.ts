@@ -24,6 +24,12 @@ export function setCalc(format: FormatKey, req: CalcRequest) {
   listeners.forEach((l) => l());
 }
 
+/** Changes the calc from its latest value, so quick taps never overwrite each other. */
+export function updateCalc(format: FormatKey, change: (req: CalcRequest) => CalcRequest) {
+  const current = state[format];
+  if (current) setCalc(format, change(current));
+}
+
 export function calcFor(format: FormatKey): CalcRequest | undefined {
   return state[format];
 }

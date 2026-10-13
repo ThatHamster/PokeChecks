@@ -17,6 +17,7 @@ use pokechecks_core::calc::{self, Field, Outcome, SideInput, Terrain, Weather};
 use pokechecks_core::dex::{Category, Dex, MoveData};
 use pokechecks_core::gameplan::{self, GamePlan, PlanMon};
 use pokechecks_core::smogon::{Meta, Mon};
+use pokechecks_core::speed::{self, MatchState, Runner};
 use pokechecks_core::team::{self, Custom, Matchup, Member};
 use pokechecks_core::tournaments::{self, ListMon};
 
@@ -422,6 +423,28 @@ impl Engine {
         })
     }
 
+    /// Who moves first: your team (on its builder sets) against the opponent's Pokémon at
+    /// their most common spreads, with every Speed effect in `state` applied.
+    pub fn turn_order(
+        &self,
+        format: &str,
+        members: &[Member],
+        state: &MatchState,
+    ) -> Result<Vec<Runner>, String> {
+        let meta = self.meta(format)?;
+        let chosen: Vec<(&Mon, Option<&Custom>)> = members
+            .iter()
+            .filter_map(|m| {
+                meta.mons
+                    .iter()
+                    .find(|x| x.name == m.name)
+                    .map(|x| (x, m.custom.as_ref()))
+            })
+            .collect();
+        let sets = team::resolve_sets(&chosen);
+        Ok(speed::turn_order(state, &sets, meta, &self.dex))
+    }
+
     /// The archetypes and "How this team plays" plan for a tournament team list.
     pub fn plan(&self, list: &[ListMon], doubles: bool) -> PlanResult {
         let mons: Vec<PlanMon> = list
@@ -601,6 +624,18 @@ impl Engine {
     pub fn js_plan(&self, list: JsValue, doubles: bool) -> Result<JsValue, JsError> {
         let list: Vec<ListMon> = from_js(list)?;
         to_js(&self.plan(&list, doubles))
+    }
+
+    #[wasm_bindgen(js_name = turnOrder)]
+    pub fn js_turn_order(
+        &self,
+        format: &str,
+        members: JsValue,
+        state: JsValue,
+    ) -> Result<JsValue, JsError> {
+        let members: Vec<Member> = from_js(members)?;
+        let state: MatchState = from_js(state)?;
+        to_js(&self.turn_order(format, &members, &state).map_err(js_err)?)
     }
 
     #[wasm_bindgen(js_name = teamInfo)]
@@ -857,6 +892,50 @@ mod tests {
         assert_eq!(all.len(), 25);
         assert_eq!(all[0].label, "Adamant (+Atk −SpA)");
         assert!(all.iter().any(|n| n.label == "Hardy (neutral)"));
+    }
+
+    #[test]
+    fn turn_order_sorts_and_marks_close_calls() {
+        use pokechecks_core::speed::{Foe, Side};
+        let engine = engine();
+        let foe = |name: &str| Foe {
+            name: name.into(),
+            stage: 0,
+            paralyzed: false,
+            scarf: false,
+            unburden: false,
+        };
+        let mut state = MatchState {
+            foes: vec![foe("Incineroar"), foe("Pelipper"), foe("Missingno")],
+            ..MatchState::default()
+        };
+        let team = [Member::new("Rillaboom")];
+        let order = engine.turn_order("vgc", &team, &state).unwrap();
+        let names: Vec<&str> = order.iter().map(|r| r.name.as_str()).collect();
+        // Rillaboom (Adamant, 2 Spe) 107; Pelipper (Modest, 2 Spe) 86; Incineroar (Careful) 80.
+        assert_eq!(
+            names,
+            ["Rillaboom", "Pelipper", "Incineroar"],
+            "unknown foes dropped"
+        );
+        assert_eq!(order[0].side, Side::Mine);
+        assert_eq!(order[0].speed, 107);
+        // Pelipper could reach 128 with a Timid 32 spread, so it might outspeed Rillaboom.
+        assert_eq!(order[1].close, ["Rillaboom"]);
+
+        state.trick_room = true;
+        state.weather = Some(pokechecks_core::calc::Weather::Rain);
+        let tr = engine.turn_order("vgc", &team, &state).unwrap();
+        assert_eq!(tr[0].name, "Incineroar", "slowest first under Trick Room");
+        let json = serde_json::to_value(&tr[0]).unwrap();
+        assert_eq!(json["side"], "foe");
+        let back: MatchState = serde_json::from_value(
+            serde_json::json!({ "foes": [], "mine": [], "trick_room": false,
+                "my_tailwind": false, "foe_tailwind": false, "my_drop": false, "foe_drop": false,
+                "weather": "rain" }),
+        )
+        .unwrap();
+        assert_eq!(back.weather, Some(pokechecks_core::calc::Weather::Rain));
     }
 
     #[test]

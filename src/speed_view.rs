@@ -13,6 +13,7 @@ use crate::team::{
     self, Custom, MAX_POINTS_PER_STAT, Member, NATURES, TEAM_SIZE, level50_stat, nature_label,
 };
 use crate::view::{Page, Theme, ViewState, mon_icon, shell, site_footer, site_header, type_chips};
+use pokechecks_core::speed::{Foe, MatchState, Mine, Side, turn_order};
 
 /// Abilities that double Speed under the right conditions.
 const SPEED_ABILITIES: [&str; 6] = [
@@ -505,50 +506,6 @@ fn mode_tabs(vs: &ViewState, meta_mode: bool) -> Markup {
     }
 }
 
-/// Weather that doubles a Speed ability.
-fn speed_weather(ability: &str) -> Option<Weather> {
-    match ability {
-        "Swift Swim" => Some(Weather::Rain),
-        "Chlorophyll" => Some(Weather::Sun),
-        "Sand Rush" => Some(Weather::Sand),
-        "Slush Rush" => Some(Weather::Snow),
-        _ => None,
-    }
-}
-
-/// One opposing Pokémon and the changes the visitor has marked on it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Foe {
-    pub name: String,
-    pub stage: i8,
-    pub paralyzed: bool,
-    /// Assume it holds a Choice Scarf.
-    pub scarf: bool,
-    /// Unburden has triggered.
-    pub unburden: bool,
-}
-
-/// Changes marked on one of the visitor's own Pokémon, by team slot.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Mine {
-    pub stage: i8,
-    pub paralyzed: bool,
-    pub unburden: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct MatchState {
-    pub foes: Vec<Foe>,
-    pub mine: Vec<Mine>,
-    pub trick_room: bool,
-    pub my_tailwind: bool,
-    pub foe_tailwind: bool,
-    /// −1 Speed on that whole side, as after Icy Wind or Electroweb.
-    pub my_drop: bool,
-    pub foe_drop: bool,
-    pub weather: Option<Weather>,
-}
-
 fn flag(s: Option<&str>) -> bool {
     s == Some("1")
 }
@@ -579,196 +536,139 @@ fn find_typed<'a>(meta: &'a Meta, typed: &str) -> Option<&'a Mon> {
         })
 }
 
-impl MatchState {
-    pub fn from_params(p: &SpeedParams, meta: &Meta, team_len: usize) -> Self {
-        let mut foes: Vec<Foe> = Vec::new();
-        for token in p.foes.as_deref().unwrap_or("").split(',') {
-            let f: Vec<&str> = token.split('~').collect();
-            let Some(mon) = meta.mons.iter().find(|m| m.name == f[0]) else {
-                continue;
-            };
-            if foes.len() < TEAM_SIZE && !foes.iter().any(|x| x.name == mon.name) {
-                foes.push(Foe {
-                    name: mon.name.clone(),
-                    stage: f
-                        .get(1)
-                        .and_then(|s| s.parse().ok())
-                        .map_or(0, |s: i8| s.clamp(-6, 6)),
-                    paralyzed: flag(f.get(2).copied()),
-                    scarf: flag(f.get(3).copied()),
-                    unburden: flag(f.get(4).copied()),
-                });
-            }
-        }
-        if let Some(mon) = p.add.as_deref().and_then(|t| find_typed(meta, t))
-            && foes.len() < TEAM_SIZE
-            && !foes.iter().any(|x| x.name == mon.name)
-        {
+/// Reads the match from the link. `pokechecks-core` owns `MatchState`, so these are free
+/// functions rather than methods.
+pub fn match_from_params(p: &SpeedParams, meta: &Meta, team_len: usize) -> MatchState {
+    let mut foes: Vec<Foe> = Vec::new();
+    for token in p.foes.as_deref().unwrap_or("").split(',') {
+        let f: Vec<&str> = token.split('~').collect();
+        let Some(mon) = meta.mons.iter().find(|m| m.name == f[0]) else {
+            continue;
+        };
+        if foes.len() < TEAM_SIZE && !foes.iter().any(|x| x.name == mon.name) {
             foes.push(Foe {
                 name: mon.name.clone(),
-                stage: 0,
-                paralyzed: false,
-                // Assume a Scarf when that's what this Pokémon usually holds.
-                scarf: mon.items.first().is_some_and(|i| i.name == "Choice Scarf"),
-                unburden: false,
+                stage: f
+                    .get(1)
+                    .and_then(|s| s.parse().ok())
+                    .map_or(0, |s: i8| s.clamp(-6, 6)),
+                paralyzed: flag(f.get(2).copied()),
+                scarf: flag(f.get(3).copied()),
+                unburden: flag(f.get(4).copied()),
             });
         }
-
-        let mut mine: Vec<Mine> = p
-            .mods
-            .as_deref()
-            .unwrap_or("")
-            .split(',')
-            .map(|token| {
-                let f: Vec<&str> = token.split('~').collect();
-                Mine {
-                    stage: f
-                        .first()
-                        .and_then(|s| s.parse().ok())
-                        .map_or(0, |s: i8| s.clamp(-6, 6)),
-                    paralyzed: flag(f.get(1).copied()),
-                    unburden: flag(f.get(2).copied()),
-                }
-            })
-            .collect();
-        mine.resize(team_len, Mine::default());
-
-        Self {
-            foes,
-            mine,
-            trick_room: flag(p.tr.as_deref()),
-            my_tailwind: flag(p.my_tw.as_deref()),
-            foe_tailwind: flag(p.foe_tw.as_deref()),
-            my_drop: flag(p.my_drop.as_deref()),
-            foe_drop: flag(p.foe_drop.as_deref()),
-            weather: p.weather.as_deref().and_then(Weather::parse),
-        }
+    }
+    if let Some(mon) = p.add.as_deref().and_then(|t| find_typed(meta, t))
+        && foes.len() < TEAM_SIZE
+        && !foes.iter().any(|x| x.name == mon.name)
+    {
+        foes.push(Foe {
+            name: mon.name.clone(),
+            stage: 0,
+            paralyzed: false,
+            // Assume a Scarf when that's what this Pokémon usually holds.
+            scarf: mon.items.first().is_some_and(|i| i.name == "Choice Scarf"),
+            unburden: false,
+        });
     }
 
-    fn query(&self, vs: &ViewState) -> Vec<(&'static str, String)> {
-        let mut q: Vec<(&'static str, String)> =
-            vec![("fmt", vs.fmt.clone()), ("cut", vs.cut.to_string())];
-        if !vs.team.is_empty() {
-            q.push(("team", vs.team_param()));
-            q.push((
-                "mods",
-                self.mine
-                    .iter()
-                    .map(|m| format!("{}~{}~{}", m.stage, bit(m.paralyzed), bit(m.unburden)))
-                    .collect::<Vec<_>>()
-                    .join(","),
-            ));
-        }
-        if !self.foes.is_empty() {
-            q.push((
-                "foes",
-                self.foes
-                    .iter()
-                    .map(|f| {
-                        format!(
-                            "{}~{}~{}~{}~{}",
-                            f.name,
-                            f.stage,
-                            bit(f.paralyzed),
-                            bit(f.scarf),
-                            bit(f.unburden)
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(","),
-            ));
-        }
-        for (key, on) in [
-            ("tr", self.trick_room),
-            ("my_tw", self.my_tailwind),
-            ("foe_tw", self.foe_tailwind),
-            ("my_drop", self.my_drop),
-            ("foe_drop", self.foe_drop),
-        ] {
-            if on {
-                q.push((key, "1".into()));
+    let mut mine: Vec<Mine> = p
+        .mods
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(|token| {
+            let f: Vec<&str> = token.split('~').collect();
+            Mine {
+                stage: f
+                    .first()
+                    .and_then(|s| s.parse().ok())
+                    .map_or(0, |s: i8| s.clamp(-6, 6)),
+                paralyzed: flag(f.get(1).copied()),
+                unburden: flag(f.get(2).copied()),
             }
+        })
+        .collect();
+    mine.resize(team_len, Mine::default());
+
+    MatchState {
+        foes,
+        mine,
+        trick_room: flag(p.tr.as_deref()),
+        my_tailwind: flag(p.my_tw.as_deref()),
+        foe_tailwind: flag(p.foe_tw.as_deref()),
+        my_drop: flag(p.my_drop.as_deref()),
+        foe_drop: flag(p.foe_drop.as_deref()),
+        weather: p.weather.as_deref().and_then(Weather::parse),
+    }
+}
+
+fn match_query(state: &MatchState, vs: &ViewState) -> Vec<(&'static str, String)> {
+    let mut q: Vec<(&'static str, String)> =
+        vec![("fmt", vs.fmt.clone()), ("cut", vs.cut.to_string())];
+    if !vs.team.is_empty() {
+        q.push(("team", vs.team_param()));
+        q.push((
+            "mods",
+            state
+                .mine
+                .iter()
+                .map(|m| format!("{}~{}~{}", m.stage, bit(m.paralyzed), bit(m.unburden)))
+                .collect::<Vec<_>>()
+                .join(","),
+        ));
+    }
+    if !state.foes.is_empty() {
+        q.push((
+            "foes",
+            state
+                .foes
+                .iter()
+                .map(|f| {
+                    format!(
+                        "{}~{}~{}~{}~{}",
+                        f.name,
+                        f.stage,
+                        bit(f.paralyzed),
+                        bit(f.scarf),
+                        bit(f.unburden)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(","),
+        ));
+    }
+    for (key, on) in [
+        ("tr", state.trick_room),
+        ("my_tw", state.my_tailwind),
+        ("foe_tw", state.foe_tailwind),
+        ("my_drop", state.my_drop),
+        ("foe_drop", state.foe_drop),
+    ] {
+        if on {
+            q.push((key, "1".into()));
         }
-        if let Some(w) = self.weather {
-            q.push(("weather", w.key().into()));
-        }
-        q
     }
-
-    /// This page with one change applied: each toggle on the page is a plain link.
-    fn href(&self, vs: &ViewState, change: impl FnOnce(&mut MatchState)) -> String {
-        let mut next = self.clone();
-        change(&mut next);
-        // Land on the turn order so the result of each tap is in view, mid-match.
-        format!(
-            "{}?{}#order",
-            Page::Speed.path(),
-            serde_urlencoded::to_string(next.query(vs)).unwrap_or_default()
-        )
+    if let Some(w) = state.weather {
+        q.push(("weather", w.key().into()));
     }
+    q
 }
 
-/// Speed with stages, Scarf, a doubling ability, Tailwind and paralysis, applied in the
-/// game's order.
-#[allow(clippy::too_many_arguments)]
-fn final_speed(
-    base: u16,
-    nature: &str,
-    points: u16,
-    stage: i8,
-    scarf: bool,
-    doubled: bool,
-    tailwind: bool,
-    paralyzed: bool,
-) -> u32 {
-    let mut s = u32::from(level50_stat(base, points, 5, nature));
-    let st = u32::from(stage.unsigned_abs().min(6));
-    s = if stage >= 0 {
-        s * (2 + st) / 2
-    } else {
-        s * 2 / (2 + st)
-    };
-    if scarf {
-        s = s * 3 / 2;
-    }
-    if doubled {
-        s *= 2;
-    }
-    if tailwind {
-        s *= 2;
-    }
-    if paralyzed {
-        s /= 2;
-    }
-    s
+/// This page with one change applied: each toggle on the page is a plain link.
+fn match_href(state: &MatchState, vs: &ViewState, change: impl FnOnce(&mut MatchState)) -> String {
+    let mut next = state.clone();
+    change(&mut next);
+    // Land on the turn order so the result of each tap is in view, mid-match.
+    format!(
+        "{}?{}#order",
+        Page::Speed.path(),
+        serde_urlencoded::to_string(match_query(&next, vs)).unwrap_or_default()
+    )
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Side {
-    Mine,
-    Foe,
-}
-
-/// One Pokémon in the turn order.
-struct Runner {
-    side: Side,
-    name: String,
-    /// Speed used for sorting: yours exactly, theirs at the most common spread.
-    speed: u32,
-    /// The opponent's slowest and fastest possible Speed with the same effects.
-    range: Option<(u32, u32)>,
-    effects: Vec<String>,
-}
-
-fn runners(state: &MatchState, vs: &ViewState, meta: &Meta, dex: &Dex) -> Vec<Runner> {
-    let mut out = Vec::new();
-    let weather_doubles = |ability: Option<&str>| {
-        ability
-            .and_then(speed_weather)
-            .is_some_and(|w| state.weather == Some(w))
-    };
-
-    // Your team, with the sets from the team builder.
+/// Your team's sets from the team builder, for the turn order.
+fn my_sets<'a>(vs: &ViewState, meta: &'a Meta) -> Vec<team::Set<'a>> {
     let chosen: Vec<(&Mon, Option<&Custom>)> = vs
         .team
         .iter()
@@ -779,108 +679,7 @@ fn runners(state: &MatchState, vs: &ViewState, meta: &Meta, dex: &Dex) -> Vec<Ru
                 .map(|x| (x, m.custom.as_ref()))
         })
         .collect();
-    for (set, mods) in team::resolve_sets(&chosen).iter().zip(&state.mine) {
-        let base = dex.entry(&set.mon.name).map_or(0, |e| e.stats[5]);
-        let nature = set.nature.clone().unwrap_or_else(|| "Hardy".into());
-        let points = set.points.map_or(0, |p| p[5]);
-        let stage = (mods.stage - i8::from(state.my_drop)).clamp(-6, 6);
-        let scarf = set.item.as_deref() == Some("Choice Scarf");
-        let doubled = weather_doubles(set.ability.as_deref())
-            || (mods.unburden && set.ability.as_deref() == Some("Unburden"));
-        let mut effects = Vec::new();
-        if stage != 0 {
-            effects.push(format!("{stage:+}"));
-        }
-        if scarf {
-            effects.push("Scarf".into());
-        }
-        if doubled {
-            effects.push(set.ability.clone().unwrap_or_default());
-        }
-        if state.my_tailwind {
-            effects.push("Tailwind".into());
-        }
-        if mods.paralyzed {
-            effects.push("Paralyzed".into());
-        }
-        out.push(Runner {
-            side: Side::Mine,
-            name: set.mon.name.clone(),
-            speed: final_speed(
-                base,
-                &nature,
-                points,
-                stage,
-                scarf,
-                doubled,
-                state.my_tailwind,
-                mods.paralyzed,
-            ),
-            range: None,
-            effects,
-        });
-    }
-
-    // Their team, at the most common spread, with the slowest-to-fastest range.
-    for foe in &state.foes {
-        let Some(mon) = meta.mons.iter().find(|m| m.name == foe.name) else {
-            continue;
-        };
-        let base = dex.entry(&mon.name).map_or(0, |e| e.stats[5]);
-        let (nature, points) = mon
-            .top_spread()
-            .map_or(("Hardy".to_owned(), 0), |s| (s.nature.clone(), s.points[5]));
-        let ability = mon.abilities.first().map(|a| a.name.as_str());
-        let stage = (foe.stage - i8::from(state.foe_drop)).clamp(-6, 6);
-        let doubled = weather_doubles(ability) || (foe.unburden && ability == Some("Unburden"));
-        let calc = |nature: &str, points: u16| {
-            final_speed(
-                base,
-                nature,
-                points,
-                stage,
-                foe.scarf,
-                doubled,
-                state.foe_tailwind,
-                foe.paralyzed,
-            )
-        };
-        let mut effects = Vec::new();
-        if stage != 0 {
-            effects.push(format!("{stage:+}"));
-        }
-        if foe.scarf {
-            effects.push("Scarf".into());
-        }
-        if doubled {
-            effects.push(ability.unwrap_or_default().to_owned());
-        }
-        if state.foe_tailwind {
-            effects.push("Tailwind".into());
-        }
-        if foe.paralyzed {
-            effects.push("Paralyzed".into());
-        }
-        out.push(Runner {
-            side: Side::Foe,
-            name: mon.name.clone(),
-            speed: calc(&nature, points),
-            range: Some((calc("Brave", 0), calc("Timid", MAX_POINTS_PER_STAT))),
-            effects,
-        });
-    }
-
-    // Fastest first, or slowest first under Trick Room. Equal speeds keep your Pokémon
-    // listed first, but both are marked as a tie.
-    out.sort_by(|a, b| {
-        let order = if state.trick_room {
-            a.speed.cmp(&b.speed)
-        } else {
-            b.speed.cmp(&a.speed)
-        };
-        order.then((a.side == Side::Foe).cmp(&(b.side == Side::Foe)))
-    });
-    out
+    team::resolve_sets(&chosen)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -894,12 +693,7 @@ pub fn match_page(
     state: &MatchState,
     saved: &[SavedTeam],
 ) -> Markup {
-    let order = runners(state, vs, meta, dex);
-    let my_speeds: Vec<(&str, u32)> = order
-        .iter()
-        .filter(|r| r.side == Side::Mine)
-        .map(|r| (r.name.as_str(), r.speed))
-        .collect();
+    let order = turn_order(state, &my_sets(vs, meta), meta, dex);
     let dek = html! {
         "Check turn order during a match in "
         strong { (format.kind.label()) " Regulation " (format.regulation) }
@@ -932,11 +726,6 @@ pub fn match_page(
                     } @else {
                         ol.turn-order {
                             @for (i, r) in order.iter().enumerate() {
-                                @let tie = order.iter().enumerate().any(|(j, o)| j != i && o.side != r.side && o.speed == r.speed);
-                                @let close: Vec<&str> = match r.range {
-                                    Some((lo, hi)) => my_speeds.iter().filter(|(_, s)| *s >= lo && *s <= hi && *s != r.speed).map(|(n, _)| *n).collect(),
-                                    None => vec![],
-                                };
                                 li class={ "runner " (if r.side == Side::Mine { "mine" } else { "foe" }) } {
                                     span.place.num { (i + 1) }
                                     div.runner-main {
@@ -948,12 +737,12 @@ pub fn match_page(
                                         }
                                         div.runner-notes {
                                             @for e in &r.effects { span.tag.plain-tag { (e) } }
-                                            @if tie { span.tag.tie-tag { "Speed tie" } }
+                                            @if r.tie { span.tag.tie-tag { "Speed tie" } }
                                             @if let Some((lo, hi)) = r.range {
                                                 span.muted.small { "Could be " (lo) "–" (hi) }
                                             }
-                                            @if !close.is_empty() {
-                                                span.small.warn-text { "Could move before or after " (close.join(", ")) ", depending on its spread" }
+                                            @if !r.close.is_empty() {
+                                                span.small.warn-text { "Could move before or after " (r.close.join(", ")) ", depending on its spread" }
                                             }
                                         }
                                     }
@@ -984,24 +773,24 @@ fn field_controls(state: &MatchState, vs: &ViewState) -> Markup {
         div.section {
             h3.small-h { "Field" }
             div.toggles {
-                (toggle("Trick Room", state.trick_room, state.href(vs, |s| s.trick_room = !s.trick_room)))
+                (toggle("Trick Room", state.trick_room, match_href(state, vs, |s| s.trick_room = !s.trick_room)))
             }
             div.toggle-grid {
                 span.label { "Tailwind" }
                 div.toggles {
-                    (toggle("Your side", state.my_tailwind, state.href(vs, |s| s.my_tailwind = !s.my_tailwind)))
-                    (toggle("Their side", state.foe_tailwind, state.href(vs, |s| s.foe_tailwind = !s.foe_tailwind)))
+                    (toggle("Your side", state.my_tailwind, match_href(state, vs, |s| s.my_tailwind = !s.my_tailwind)))
+                    (toggle("Their side", state.foe_tailwind, match_href(state, vs, |s| s.foe_tailwind = !s.foe_tailwind)))
                 }
                 span.label { "−1 Speed (Icy Wind)" }
                 div.toggles {
-                    (toggle("Your side", state.my_drop, state.href(vs, |s| s.my_drop = !s.my_drop)))
-                    (toggle("Their side", state.foe_drop, state.href(vs, |s| s.foe_drop = !s.foe_drop)))
+                    (toggle("Your side", state.my_drop, match_href(state, vs, |s| s.my_drop = !s.my_drop)))
+                    (toggle("Their side", state.foe_drop, match_href(state, vs, |s| s.foe_drop = !s.foe_drop)))
                 }
                 span.label { "Weather" }
                 div.toggles {
-                    (toggle("None", state.weather.is_none(), state.href(vs, |s| s.weather = None)))
+                    (toggle("None", state.weather.is_none(), match_href(state, vs, |s| s.weather = None)))
                     @for w in Weather::ALL {
-                        (toggle(w.label(), state.weather == Some(w), state.href(vs, |s| s.weather = Some(w))))
+                        (toggle(w.label(), state.weather == Some(w), match_href(state, vs, |s| s.weather = Some(w))))
                     }
                 }
             }
@@ -1052,7 +841,8 @@ fn my_team_controls(
         format!(
             "{}?{}#order",
             Page::Speed.path(),
-            serde_urlencoded::to_string(next.query(&vs.with_team(team))).unwrap_or_default()
+            serde_urlencoded::to_string(match_query(&next, &vs.with_team(team)))
+                .unwrap_or_default()
         )
     };
     html! {
@@ -1085,11 +875,11 @@ fn my_team_controls(
                             }
                             div.side-actions {
                                 (stage_controls(mods.stage,
-                                    state.href(vs, |s| s.mine[i].stage = (s.mine[i].stage - 1).max(-6)),
-                                    state.href(vs, |s| s.mine[i].stage = (s.mine[i].stage + 1).min(6))))
-                                (toggle("Par", mods.paralyzed, state.href(vs, |s| s.mine[i].paralyzed = !s.mine[i].paralyzed)))
+                                    match_href(state, vs, |s| s.mine[i].stage = (s.mine[i].stage - 1).max(-6)),
+                                    match_href(state, vs, |s| s.mine[i].stage = (s.mine[i].stage + 1).min(6))))
+                                (toggle("Par", mods.paralyzed, match_href(state, vs, |s| s.mine[i].paralyzed = !s.mine[i].paralyzed)))
                                 @if set.ability.as_deref() == Some("Unburden") {
-                                    (toggle("Unburden", mods.unburden, state.href(vs, |s| s.mine[i].unburden = !s.mine[i].unburden)))
+                                    (toggle("Unburden", mods.unburden, match_href(state, vs, |s| s.mine[i].unburden = !s.mine[i].unburden)))
                                 }
                             }
                         }
@@ -1106,7 +896,7 @@ fn foe_controls(state: &MatchState, vs: &ViewState, meta: &Meta, dex: &Dex) -> M
             h3.small-h { "Opponent’s team" }
             @if state.foes.len() < TEAM_SIZE {
                 form.add-foe method="get" action={ (Page::Speed.path()) "#order" } {
-                    @for (k, v) in state.query(vs) {
+                    @for (k, v) in match_query(state, vs) {
                         input type="hidden" name=(k) value=(v);
                     }
                     label.sr-only for="add" { "Add an opposing Pokémon" }
@@ -1132,19 +922,19 @@ fn foe_controls(state: &MatchState, vs: &ViewState, meta: &Meta, dex: &Dex) -> M
                             }
                             div.side-actions {
                                 (stage_controls(foe.stage,
-                                    state.href(vs, |s| s.foes[i].stage = (s.foes[i].stage - 1).max(-6)),
-                                    state.href(vs, |s| s.foes[i].stage = (s.foes[i].stage + 1).min(6))))
-                                (toggle("Scarf", foe.scarf, state.href(vs, |s| s.foes[i].scarf = !s.foes[i].scarf)))
-                                (toggle("Par", foe.paralyzed, state.href(vs, |s| s.foes[i].paralyzed = !s.foes[i].paralyzed)))
+                                    match_href(state, vs, |s| s.foes[i].stage = (s.foes[i].stage - 1).max(-6)),
+                                    match_href(state, vs, |s| s.foes[i].stage = (s.foes[i].stage + 1).min(6))))
+                                (toggle("Scarf", foe.scarf, match_href(state, vs, |s| s.foes[i].scarf = !s.foes[i].scarf)))
+                                (toggle("Par", foe.paralyzed, match_href(state, vs, |s| s.foes[i].paralyzed = !s.foes[i].paralyzed)))
                                 @if ability == Some("Unburden") {
-                                    (toggle("Unburden", foe.unburden, state.href(vs, |s| s.foes[i].unburden = !s.foes[i].unburden)))
+                                    (toggle("Unburden", foe.unburden, match_href(state, vs, |s| s.foes[i].unburden = !s.foes[i].unburden)))
                                 }
-                                a.remove href=(state.href(vs, |s| { s.foes.remove(i); })) aria-label={ "Remove " (foe.name) } { "×" }
+                                a.remove href=(match_href(state, vs, |s| { s.foes.remove(i); })) aria-label={ "Remove " (foe.name) } { "×" }
                             }
                         }
                     }
                 }
-                a.clear href=(state.href(vs, |s| s.foes.clear())) { "Clear opponents" }
+                a.clear href=(match_href(state, vs, |s| s.foes.clear())) { "Clear opponents" }
             }
         }
     }
@@ -1214,12 +1004,12 @@ mod tests {
             ("Incineroar", "Sitrus Berry"),
             ("Kingambit", "Choice Scarf"),
         ]);
-        let s = MatchState::from_params(&params("Incineroar~1~1~0~0", Some("king")), &m, 0);
+        let s = match_from_params(&params("Incineroar~1~1~0~0", Some("king")), &m, 0);
         assert_eq!(s.foes.len(), 2);
         assert_eq!((s.foes[0].stage, s.foes[0].paralyzed), (1, true));
         // A Pokémon that usually holds a Scarf is assumed to have one.
         assert!(s.foes[1].scarf);
-        let again = MatchState::from_params(&params("Incineroar,Incineroar", Some("Incin")), &m, 0);
+        let again = match_from_params(&params("Incineroar,Incineroar", Some("Incin")), &m, 0);
         assert_eq!(again.foes.len(), 1);
         assert!(s.trick_room && s.weather == Some(Weather::Rain));
     }
@@ -1227,7 +1017,7 @@ mod tests {
     #[test]
     fn state_survives_a_round_trip_through_links() {
         let m = meta(&[("Incineroar", ""), ("Kingambit", "")]);
-        let s = MatchState::from_params(&params("Kingambit~-1~0~1~0,Incineroar", None), &m, 2);
+        let s = match_from_params(&params("Kingambit~-1~0~1~0,Incineroar", None), &m, 2);
         let vs = ViewState {
             page: Page::Speed,
             fmt: "vgc".into(),
@@ -1239,31 +1029,15 @@ mod tests {
             picks: vec![],
             team: vec![],
         };
-        let q: Vec<(String, String)> = s
-            .query(&vs)
+        let q: Vec<(String, String)> = match_query(&s, &vs)
             .into_iter()
             .map(|(k, v)| (k.to_owned(), v))
             .collect();
         let back: SpeedParams =
             serde_urlencoded::from_str(&serde_urlencoded::to_string(q).unwrap()).unwrap();
-        let again = MatchState::from_params(&back, &m, 2);
+        let again = match_from_params(&back, &m, 2);
         assert_eq!(again.foes, s.foes);
         assert_eq!(again.trick_room, s.trick_room);
-    }
-
-    #[test]
-    fn final_speed_applies_effects_in_order() {
-        // Jolly 32: (100 + 20 + 32) × 1.1 = 167; Scarf 250; Tailwind 500; paralysis 250.
-        assert_eq!(
-            final_speed(100, "Jolly", 32, 0, true, false, true, true),
-            250
-        );
-        // −1 stage: 167 × 2 / 3 = 111.
-        assert_eq!(
-            final_speed(100, "Jolly", 32, -1, false, false, false, false),
-            111
-        );
-        assert_eq!(speed_weather("Swift Swim"), Some(Weather::Rain));
     }
 
     #[test]

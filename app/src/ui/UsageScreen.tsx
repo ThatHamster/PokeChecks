@@ -11,7 +11,7 @@ import { ItemIcon, MonIcon, Types, monthName, pct } from './bits';
 
 const STAT_LABELS = ['HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe'];
 
-export function UsageScreen({ onOpenBuilder }: { onOpenBuilder: () => void }) {
+export function UsageScreen({ onOpenBuilder, onOpenAbout }: { onOpenBuilder: () => void; onOpenAbout: () => void }) {
   const { manifest, format, usage } = useData();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
@@ -28,6 +28,9 @@ export function UsageScreen({ onOpenBuilder }: { onOpenBuilder: () => void }) {
   return (
     <main className="screen">
       <header className="masthead">
+        <button className="about-btn" aria-label="About PokeChecks" onClick={onOpenAbout}>
+          i
+        </button>
         <h1>
           <span className="ball" aria-hidden />
           Poke<span className="accent">Checks</span>

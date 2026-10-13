@@ -223,9 +223,15 @@ So far it has:
   finds its Megas), archetype chips showing how many teams each leaves, and finish. Each
   team shows "How this team plays", its full list, and "Open in builder" (stat points
   from the most common spreads) or Share. VGC formats only, as on the website.
-- **About**, with the fan-app disclaimer.
+- **Speed tiers:** the match view from the website. Your team comes from the builder at its
+  real natures, Speed points and items; add the opponent's Pokémon at team preview. One
+  turn order (reversed under Trick Room) shows each opponent at its most common spread
+  with its possible range, and marks speed ties and close calls. Trick Room, Tailwind and
+  Icy Wind for either side, weather, stages, paralysis, Scarf and Unburden are one tap.
+  The turn order maths is shared with the website (`pokechecks_core::speed`).
+- **About** (the "i" on the Usage screen), with the fan-app disclaimer.
 
-Speed tiers come next.
+The website's second speed view, one Pokémon against the top 80, isn't in the app yet.
 
 The styles include plain fallbacks for `color-mix()` and `dvh`, so phones with an older
 Android System WebView (before Chrome 111) still get a working layout.
