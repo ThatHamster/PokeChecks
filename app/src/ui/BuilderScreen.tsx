@@ -6,7 +6,8 @@
 import { Share } from '@capacitor/share';
 import { useEffect, useMemo, useState } from 'react';
 
-import { STAT_LABELS, TEAM_SIZE, isMega, teamOf, type Custom } from '../data/engineTypes';
+import { setCalc, calcFor } from '../data/calc';
+import { STAT_LABELS, TEAM_SIZE, calcStart, isMega, moveInfo, teamOf, type Custom, type SetResult } from '../data/engineTypes';
 import { setFormat, useData } from '../data/store';
 import { addMember, removeMember, setCustom, setTeam, useTeams, type SavedTeam } from '../data/teams';
 import type { Mon } from '../data/types';
@@ -32,7 +33,7 @@ function multClass(m: number): string {
   return '';
 }
 
-export function BuilderScreen() {
+export function BuilderScreen({ onOpenCalc }: { onOpenCalc: () => void }) {
   const { engine, manifest, format, usage } = useData();
   const { current } = useTeams();
   const stored = current[format] ?? [];
@@ -87,6 +88,44 @@ export function BuilderScreen() {
     }
     addMember(format, name);
     setSheet(null);
+  };
+
+  /** Opens the calc with this exact set attacking, keeping the calc's current defender. */
+  const calcWith = (s: SetResult) => {
+    const current = calcFor(format);
+    let start;
+    try {
+      start = calcStart(engine, format, s.name, current?.defender.name);
+    } catch {
+      return;
+    }
+    // Like the website's calc, open on the set's strongest attack rather than, say, Fake Out.
+    const attack = s.moves
+      .map((m) => moveInfo(engine, m))
+      .filter((info) => info !== null && info.category !== 'Status')
+      .sort((x, y) => y!.base_power - x!.base_power)[0]?.name;
+    setCalc(format, {
+      attacker: {
+        name: s.name,
+        item: s.item,
+        ability: s.ability,
+        nature: s.nature ?? 'Hardy',
+        points: s.points ?? [0, 0, 0, 0, 0, 0],
+        boost: 0,
+        burned: false,
+      },
+      defender: current?.defender ?? start.defender,
+      move_name: attack ?? start.move_name ?? '',
+      field: current?.field ?? {
+        weather: start.weather,
+        terrain: start.terrain,
+        crit: false,
+        helping_hand: false,
+        screen: false,
+        hits_both: true,
+      },
+    });
+    onOpenCalc();
   };
 
   const editing = sheet?.kind === 'edit' ? team.sets[sheet.slot] : null;
@@ -210,9 +249,14 @@ export function BuilderScreen() {
                     </li>
                   ))}
                 </ul>
-                <button className="edit-btn" onClick={() => setSheet({ kind: 'edit', slot })}>
-                  Edit set
-                </button>
+                <div className="member-actions">
+                  <button className="edit-btn" onClick={() => setSheet({ kind: 'edit', slot })}>
+                    Edit set
+                  </button>
+                  <button className="edit-btn calc-btn" onClick={() => calcWith(s)}>
+                    Calc
+                  </button>
+                </div>
               </article>
             );
           })}

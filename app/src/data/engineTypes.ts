@@ -79,3 +79,82 @@ export function moveInfo(engine: Engine, name: string): MoveInfo | null {
 }
 
 export const isMega = (name: string) => /-Mega(-|$)/.test(name);
+
+// ---------- Damage calc ----------
+
+/** One side of the calc: a Pokémon and its set, plus its stat stage and burn. */
+export interface SideInput {
+  name: string;
+  item: string | null;
+  ability: string | null;
+  nature: string;
+  points: number[];
+  /** Stage of the stat this side uses in the calc, −6 to +6. */
+  boost: number;
+  burned: boolean;
+}
+
+export type WeatherKey = 'sun' | 'rain' | 'sand' | 'snow';
+export type TerrainKey = 'electric' | 'grassy' | 'psychic' | 'misty';
+
+export interface FieldInput {
+  weather: WeatherKey | null;
+  terrain: TerrainKey | null;
+  crit: boolean;
+  helping_hand: boolean;
+  /** Reflect against physical moves, Light Screen against special ones. */
+  screen: boolean;
+  /** In doubles, a spread move is hitting both foes (75% damage). */
+  hits_both: boolean;
+}
+
+export interface CalcRequest {
+  attacker: SideInput;
+  defender: SideInput;
+  move_name: string;
+  field: FieldInput;
+}
+
+export interface CalcStart {
+  attacker: SideInput;
+  defender: SideInput;
+  move_name: string | null;
+  weather: WeatherKey | null;
+  terrain: TerrainKey | null;
+}
+
+export interface MoveSummary {
+  name: string;
+  usage: number;
+  min_percent: number;
+  max_percent: number;
+  ko: string;
+}
+
+export interface CalcResult {
+  /** All 16 damage rolls, lowest first. */
+  rolls: number[];
+  defender_hp: number;
+  move_type: string;
+  effectiveness: number;
+  hits: number;
+  base_power: number;
+  crit: boolean;
+  spread: boolean;
+  notes: string[];
+  min_percent: number;
+  max_percent: number;
+  ko: string;
+  description: string;
+  attacker_stats: number[];
+  defender_stats: number[];
+  other_moves: MoveSummary[];
+}
+
+export function calcStart(engine: Engine, format: FormatKey, attacker?: string, defender?: string): CalcStart {
+  return engine.calcStart(format, attacker, defender) as CalcStart;
+}
+
+export function runCalc(engine: Engine, format: FormatKey, req: CalcRequest): CalcResult {
+  return engine.calc(format, req) as CalcResult;
+}

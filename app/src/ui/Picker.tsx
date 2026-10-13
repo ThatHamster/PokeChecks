@@ -12,23 +12,26 @@ export function Picker({
   team,
   onPick,
   onClose,
+  title = 'Add Pokémon',
 }: {
   mons: Mon[];
-  team: TeamResult;
+  /** With a team, suggestions come first and its members are marked "On team". */
+  team?: TeamResult;
   onPick: (name: string) => void;
   onClose: () => void;
+  title?: string;
 }) {
   const [query, setQuery] = useState('');
   const deferred = useDeferredValue(query);
-  const onTeam = new Set(team.sets.map((s) => s.name));
+  const onTeam = new Set(team?.sets.map((s) => s.name) ?? []);
   const list = useMemo(() => {
     const q = deferred.trim().toLowerCase();
     return (q ? mons.filter((m) => m.name.toLowerCase().includes(q)) : mons).slice(0, 150);
   }, [mons, deferred]);
-  const suggested = team.sets.length > 0 && !deferred ? team.suggestions : [];
+  const suggested = team && team.sets.length > 0 && !deferred ? team.suggestions : [];
 
   return (
-    <Sheet title="Add Pokémon" onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
       <div className="search sticky">
         <input
           type="search"

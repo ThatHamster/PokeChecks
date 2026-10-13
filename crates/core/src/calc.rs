@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dex::{Category, Dex, MoveData};
 use crate::smogon::Mon;
-use crate::team::{level50_stat, multiplier};
+use crate::team::{STAT_LABELS, level50_stat, multiplier, nature_effect};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Weather {
@@ -752,6 +752,77 @@ pub fn calculate(att: &Combatant, def: &Combatant, mv: &MoveData, field: &Field)
     }
 }
 
+/// The calc in one line, like Showdown's: `+1 32+ Atk Life Orb Rillaboom Wood Hammer vs.
+/// 2 HP / 0 Def Sneasler in Grassy Terrain`. Only the stats the move uses are listed.
+pub fn describe(a: &SideInput, d: &SideInput, mv: &MoveData, field: &Field, o: &Outcome) -> String {
+    let physical = mv.category == Category::Physical;
+    let attack_index = if mv.uses_defense {
+        2
+    } else if physical {
+        1
+    } else {
+        3
+    };
+    let defense_index = if physical || mv.targets_defense { 2 } else { 4 };
+
+    let stat_part = |side: &SideInput, i: usize| {
+        let sign = match nature_effect(&side.nature) {
+            Some((up, _)) if up == i => "+",
+            Some((_, down)) if down == i => "−",
+            _ => "",
+        };
+        format!("{}{sign} {}", side.points[i], STAT_LABELS[i])
+    };
+    let boost = |b: i8| match b {
+        0 => String::new(),
+        b if b > 0 => format!("+{b} "),
+        b => format!("−{} ", -b),
+    };
+    let mut line = format!(
+        "{}{} {}{} {}",
+        boost(a.boost),
+        stat_part(a, attack_index),
+        a.item
+            .as_deref()
+            .map(|i| format!("{i} "))
+            .unwrap_or_default(),
+        a.name,
+        mv.name
+    );
+    line.push_str(&format!(
+        " vs. {}{} HP / {} {}{}",
+        boost(d.boost),
+        d.points[0],
+        stat_part(d, defense_index),
+        d.item
+            .as_deref()
+            .map(|i| format!("{i} "))
+            .unwrap_or_default(),
+        d.name
+    ));
+    let mut extras = Vec::new();
+    if let Some(w) = field.weather {
+        extras.push(format!("in {}", w.label()));
+    }
+    if let Some(t) = field.terrain {
+        extras.push(format!("in {}", t.label()));
+    }
+    if field.helping_hand {
+        extras.push("with Helping Hand".into());
+    }
+    if field.screen && !o.crit {
+        extras.push("through a screen".into());
+    }
+    if o.crit {
+        extras.push("on a critical hit".into());
+    }
+    if !extras.is_empty() {
+        line.push(' ');
+        line.push_str(&extras.join(" "));
+    }
+    line
+}
+
 /// "Guaranteed OHKO", "43.8% chance to 2HKO" and so on.
 pub fn ko_chance(rolls: &[u32; 16], hp: u32) -> String {
     if rolls[15] == 0 {
@@ -908,6 +979,51 @@ mod tests {
         );
         assert_eq!(o.max(), 0);
         assert_eq!(ko_chance(&o.rolls, o.defender_hp), "No damage");
+    }
+
+    #[test]
+    fn describes_the_calc_like_showdown() {
+        let side = |name: &str, item: &str, nature: &str, points: [u16; 6]| SideInput {
+            name: name.into(),
+            item: Some(item.into()),
+            ability: None,
+            nature: nature.into(),
+            points,
+            boost: 0,
+            burned: false,
+        };
+        let a = side("Rillaboom", "Miracle Seed", "Adamant", [32, 32, 0, 0, 2, 0]);
+        let mut d = side("Sneasler", "Psychic Seed", "Adamant", [2, 32, 0, 0, 0, 32]);
+        let hammer = mv("Wood Hammer", 120, "Grass", Category::Physical);
+        let field = Field {
+            terrain: Some(Terrain::Grassy),
+            ..Field::default()
+        };
+        let o = calculate(
+            &mon(
+                "Rillaboom",
+                &["Grass"],
+                [100, 125, 90, 60, 70, 85],
+                "Adamant",
+                a.points,
+            ),
+            &mon(
+                "Sneasler",
+                &["Fighting", "Poison"],
+                [80, 130, 60, 40, 80, 120],
+                "Adamant",
+                d.points,
+            ),
+            &hammer,
+            &field,
+        );
+        // The website's calc page showed this line for the same matchup.
+        assert_eq!(
+            describe(&a, &d, &hammer, &field, &o),
+            "32+ Atk Miracle Seed Rillaboom Wood Hammer vs. 2 HP / 0 Def Psychic Seed Sneasler in Grassy Terrain"
+        );
+        d.boost = -1;
+        assert!(describe(&a, &d, &hammer, &field, &o).contains("vs. −1 2 HP"));
     }
 
     #[test]

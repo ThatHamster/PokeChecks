@@ -5,11 +5,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { refresh, start, useData } from './data/store';
 import { AboutScreen } from './ui/AboutScreen';
 import { BuilderScreen } from './ui/BuilderScreen';
+import { CalcScreen } from './ui/CalcScreen';
 import { closeTopSheet } from './ui/Sheet';
 import { UsageScreen } from './ui/UsageScreen';
 import { Ball } from './ui/bits';
 
-type Tab = 'usage' | 'builder' | 'about';
+type Tab = 'usage' | 'builder' | 'calc' | 'about';
 
 const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
   {
@@ -32,6 +33,15 @@ const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
         <rect x="13" y="3" width="8" height="8" rx="2.5" />
         <rect x="3" y="13" width="8" height="8" rx="2.5" />
         <path d="M17 13.5v7M13.5 17h7" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" fill="none" />
+      </svg>
+    ),
+  },
+  {
+    key: 'calc',
+    label: 'Calc',
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22">
+        <path d="M13.5 2 5 13.5h6L9.5 22 19 9.5h-6.2z" />
       </svg>
     ),
   },
@@ -108,7 +118,8 @@ export function App() {
       )}
       {offline && !outdated && <p className="banner">Offline · showing your saved stats</p>}
       {tab === 'usage' && <UsageScreen onOpenBuilder={() => setTab('builder')} />}
-      {tab === 'builder' && <BuilderScreen />}
+      {tab === 'builder' && <BuilderScreen onOpenCalc={() => setTab('calc')} />}
+      {tab === 'calc' && <CalcScreen />}
       {tab === 'about' && <AboutScreen />}
       <nav className="tabbar" aria-label="Sections">
         {TABS.map((t) => (
