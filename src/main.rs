@@ -19,8 +19,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use axum::Router;
-use axum::extract::{Form, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::extract::{Form, Path, Query, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::middleware;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use serde::Deserialize;
@@ -371,13 +372,22 @@ struct SaveForm {
 
 /// Longest team name kept; longer names are cut.
 const TEAM_NAME_LIMIT: usize = 40;
+/// Longest encoded team accepted. Six fully edited sets come to well under 1,000
+/// characters, and browsers drop cookies over about 4 KB anyway.
+const TEAM_LIMIT: usize = 2_000;
 
 /// Saves the builder's team in a cookie, then returns to the page with a message.
 async fn save_team(headers: HeaderMap, Form(f): Form<SaveForm>) -> Response {
+    if !same_site(&headers) {
+        return cross_site_refused();
+    }
     let back = safe_back(f.back.as_deref());
     let team = f.team.unwrap_or_default();
     if team.trim().is_empty() {
         return Redirect::to(&with_message(back, "empty")).into_response();
+    }
+    if team.len() > TEAM_LIMIT {
+        return Redirect::to(&with_message(back, "too-big")).into_response();
     }
     let fmt = f.fmt.unwrap_or_default();
     let name: String = f
@@ -412,7 +422,10 @@ struct DeleteForm {
     back: Option<String>,
 }
 
-async fn delete_team(Form(f): Form<DeleteForm>) -> Response {
+async fn delete_team(headers: HeaderMap, Form(f): Form<DeleteForm>) -> Response {
+    if !same_site(&headers) {
+        return cross_site_refused();
+    }
     let back = safe_back(f.back.as_deref());
     match f.slot.filter(|s| *s < saved::MAX_SAVED) {
         Some(slot) => (
@@ -422,6 +435,105 @@ async fn delete_team(Form(f): Form<DeleteForm>) -> Response {
             .into_response(),
         None => Redirect::to(back).into_response(),
     }
+}
+
+/// Whether a form post came from PokeChecks itself rather than another site's page, so other
+/// sites can't add or delete a visitor's saved teams. Browsers send `Sec-Fetch-Site`; older
+/// ones send `Origin`, compared with `Host`. Requests with neither (scripts, very old
+/// browsers) can't come from another site's page, so they're allowed.
+fn same_site(headers: &HeaderMap) -> bool {
+    let get = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    if let Some(site) = get("sec-fetch-site") {
+        return matches!(site, "same-origin" | "none");
+    }
+    match (get("origin"), get("host")) {
+        (Some(origin), Some(host)) => origin
+            .split_once("://")
+            .is_some_and(|(_, origin_host)| origin_host.eq_ignore_ascii_case(host)),
+        (Some(_), None) => false,
+        (None, _) => true,
+    }
+}
+
+fn cross_site_refused() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        "Saved teams can only be changed from PokeChecks itself.",
+    )
+        .into_response()
+}
+
+/// Content Security Policy. The pages run no scripts, so none are allowed at all; styles,
+/// images and fonts come from PokeChecks (style attributes position sprites and colour
+/// bars); the only frame is Ko-fi's donation panel; and no other site may frame PokeChecks.
+/// Showdown is allowed for images because `/sprites.png` falls back to its copy.
+const CSP: &str = "default-src 'none'; style-src 'self' 'unsafe-inline'; \
+    img-src 'self' https://play.pokemonshowdown.com; font-src 'self'; \
+    frame-src https://ko-fi.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
+/// Security headers on every response.
+async fn security_headers(mut res: Response) -> Response {
+    let headers = res.headers_mut();
+    let set = [
+        (header::CONTENT_SECURITY_POLICY, CSP),
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::X_FRAME_OPTIONS, "DENY"),
+        (header::REFERRER_POLICY, "strict-origin-when-cross-origin"),
+        // Browsers only honour this over HTTPS, so plain-HTTP local runs are unaffected.
+        (header::STRICT_TRANSPORT_SECURITY, "max-age=31536000"),
+    ];
+    for (name, value) in set {
+        headers.insert(name, HeaderValue::from_static(value));
+    }
+    res
+}
+
+/// The self-hosted fonts and their licence, built into the binary.
+const FONTS: [(&str, &[u8]); 7] = [
+    (
+        "fredoka-latin.woff2",
+        include_bytes!("../assets/fonts/fredoka-latin.woff2"),
+    ),
+    (
+        "fredoka-latin-ext.woff2",
+        include_bytes!("../assets/fonts/fredoka-latin-ext.woff2"),
+    ),
+    (
+        "nunito-latin.woff2",
+        include_bytes!("../assets/fonts/nunito-latin.woff2"),
+    ),
+    (
+        "nunito-latin-ext.woff2",
+        include_bytes!("../assets/fonts/nunito-latin-ext.woff2"),
+    ),
+    (
+        "jetbrains-mono-latin.woff2",
+        include_bytes!("../assets/fonts/jetbrains-mono-latin.woff2"),
+    ),
+    (
+        "jetbrains-mono-latin-ext.woff2",
+        include_bytes!("../assets/fonts/jetbrains-mono-latin-ext.woff2"),
+    ),
+    ("OFL.txt", include_bytes!("../assets/fonts/OFL.txt")),
+];
+
+async fn font(Path(file): Path<String>) -> Response {
+    let Some((_, bytes)) = FONTS.iter().find(|(name, _)| *name == file) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let kind = if file.ends_with(".txt") {
+        "text/plain; charset=utf-8"
+    } else {
+        "font/woff2"
+    };
+    (
+        [
+            (header::CONTENT_TYPE, kind),
+            (header::CACHE_CONTROL, "public, max-age=2592000"),
+        ],
+        *bytes,
+    )
+        .into_response()
 }
 
 /// Adds `msg=…` to an on-site path so the page can confirm what happened.
@@ -696,11 +808,13 @@ async fn main() -> Result<()> {
         .route("/speed", get(speed_page))
         .route("/app.css", get(stylesheet))
         .route("/sprites.png", get(sprites))
+        .route("/fonts/{file}", get(font))
         .route("/healthz", get(health))
         .route("/theme", get(set_theme))
         .route("/saved/save", post(save_team))
         .route("/saved/delete", post(delete_team))
-        .with_state(state);
+        .with_state(state)
+        .layer(middleware::map_response(security_headers));
 
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -726,7 +840,75 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::safe_back;
+    use axum::http::{HeaderMap, HeaderValue, header};
+    use axum::response::{IntoResponse, Response};
+
+    use super::{FONTS, safe_back, same_site, security_headers};
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (name, value) in pairs {
+            h.insert(*name, HeaderValue::from_static(value));
+        }
+        h
+    }
+
+    #[test]
+    fn saved_teams_only_change_from_this_site() {
+        assert!(same_site(&headers(&[("sec-fetch-site", "same-origin")])));
+        assert!(same_site(&headers(&[("sec-fetch-site", "none")])));
+        assert!(!same_site(&headers(&[("sec-fetch-site", "cross-site")])));
+        assert!(!same_site(&headers(&[("sec-fetch-site", "same-site")])));
+        let ours = [
+            ("origin", "https://pokechecks.onrender.com"),
+            ("host", "pokechecks.onrender.com"),
+        ];
+        assert!(same_site(&headers(&ours)));
+        let theirs = [
+            ("origin", "https://evil.example"),
+            ("host", "pokechecks.onrender.com"),
+        ];
+        assert!(!same_site(&headers(&theirs)));
+        assert!(!same_site(&headers(&[
+            ("origin", "null"),
+            ("host", "pokechecks.onrender.com")
+        ])));
+        assert!(same_site(&headers(&[("host", "127.0.0.1:3000")])));
+    }
+
+    #[tokio::test]
+    async fn every_response_gets_security_headers() {
+        let res: Response = security_headers("ok".into_response()).await;
+        let csp = res.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap();
+        assert!(csp.contains("default-src 'none'"));
+        assert!(csp.contains("frame-ancestors 'none'"));
+        assert!(!csp.contains("script-src"), "pages run no scripts");
+        assert_eq!(res.headers()[header::X_FRAME_OPTIONS], "DENY");
+        assert_eq!(res.headers()[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert!(
+            res.headers()
+                .contains_key(header::STRICT_TRANSPORT_SECURITY)
+        );
+    }
+
+    #[test]
+    fn every_font_in_the_stylesheet_is_served() {
+        let css = crate::view::CSS;
+        let used: Vec<&str> = css
+            .split("url(\"/fonts/")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        assert_eq!(used.len(), 6);
+        for file in used {
+            assert!(
+                FONTS.iter().any(|(name, _)| *name == file),
+                "{file} isn't served"
+            );
+        }
+    }
 
     #[test]
     fn theme_redirect_stays_on_site() {

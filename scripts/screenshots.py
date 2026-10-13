@@ -176,8 +176,11 @@ def take_all(dt, out):
 
     # Team builder, with the team also saved so the saved teams panel has an entry.
     go(dt, f"{BASE}/builder?fmt=vgc&cut=1630&team={team}")
-    dt.js(f"""fetch('/saved/save', {{method: 'POST', body: new URLSearchParams({{
-        fmt: 'vgc', team: '{TEAM}', back: '/builder', name: 'Grass Tailwind'}})}})""")
+    # Submit the page's own Save form; the site's content policy blocks script requests.
+    submit(dt, """(() => {
+        document.querySelector('#save-name').value = 'Grass Tailwind';
+        document.querySelector('.save-form').requestSubmit();
+    })()""")
     go(dt, f"{BASE}/builder?fmt=vgc&cut=1630&team={team}")
     shot(dt, out, "team-builder.png", 1320)
 

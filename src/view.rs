@@ -558,9 +558,6 @@ pub(crate) fn shell(subtitle: &str, theme: Theme, body: Markup) -> Markup {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { "PokeChecks · " (subtitle) }
-                link rel="preconnect" href="https://fonts.googleapis.com";
-                link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
-                link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap";
                 // The hash in the URL makes browsers fetch the stylesheet again whenever it changes.
                 link rel="stylesheet" href={ "/app.css?v=" (*CSS_HASH) };
             }

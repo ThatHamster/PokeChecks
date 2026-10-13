@@ -19,6 +19,17 @@ form in a small pop-up, so visitors can donate without leaving the page. It uses
 browser's built-in popover, still with no JavaScript, and Ko-fi isn't contacted until someone
 opens it.
 
+## Privacy and security
+
+- Nothing is stored on the server. Your theme and saved teams live in cookies in your own
+  browser, and there are no accounts, analytics or ads.
+- Pages make no requests to other sites: the fonts and Pokémon sprites are served by
+  PokeChecks itself. The only exception is Ko-fi's donation form, loaded when you open the
+  support pop-up.
+- Every response carries a strict Content Security Policy that allows no scripts at all, and
+  PokeChecks can't be shown inside another site's frame. Saved teams can only be added or
+  deleted from PokeChecks itself, not by forms on other sites.
+
 Every meta team and tournament team has a "How this team plays" section for newer players:
 a short starting plan (the team's main idea, a simple lead, which Pokémon to Mega Evolve,
 who does the damage) and what each Pokémon is there to do. It's worked out from the team's
@@ -156,6 +167,8 @@ the support button like the live site, and so it can capture the donation pop-up
 
 - Usage: [Smogon usage stats](https://www.smogon.com/stats/), the monthly "chaos" files.
 - Base stats, types, and move, item and ability names: [Pokémon Showdown](https://play.pokemonshowdown.com/data/).
+- Fonts: Fredoka, Nunito and JetBrains Mono, served from `assets/fonts` under the SIL Open
+  Font License (see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)).
 - Pokémon mini sprites: Pokémon Showdown's icon sheet, downloaded with the Pokédex and served by
   PokeChecks itself.
 - Tournament teams: the [Limitless public API](https://docs.limitlesstcg.com/developer.html).

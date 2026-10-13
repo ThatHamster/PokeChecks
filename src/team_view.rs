@@ -74,9 +74,10 @@ fn save_message(msg: Option<&str>) -> Markup {
         Some("deleted") => "Saved team deleted.",
         Some("full") => "You already have 12 saved teams. Delete one to save another.",
         Some("empty") => "Add at least one Pokémon before saving.",
+        Some("too-big") => "That team is too large to save.",
         _ => return html! {},
     };
-    let warn = matches!(msg, Some("full" | "empty"));
+    let warn = matches!(msg, Some("full" | "empty" | "too-big"));
     html! { p class={ "flash" @if warn { " warn" } } role="status" { (text) } }
 }
 
