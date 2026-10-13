@@ -600,3 +600,15 @@ footer .support { white-space: nowrap; }
   header:hover h1::before { transform: none; }
   .support-panel:popover-open, .support-panel:popover-open::backdrop, .support-panel:popover-open .title-heart { animation: none; }
 }
+
+/* Privacy policy */
+.home-link { text-decoration: none; }
+.policy { max-width: 760px; }
+.policy-body { padding: 6px 22px 22px; }
+.policy-body h3 { font-family: var(--f-display); font-size: 20px; margin: 22px 0 6px; }
+.policy-body p, .policy-body li { text-wrap: pretty; }
+.policy-body ul { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.policy-body .lead {
+  background: color-mix(in srgb, var(--tint-a) 14%, var(--panel)); border: 2px dashed var(--line); border-radius: var(--r-card);
+  padding: 12px 14px;
+}

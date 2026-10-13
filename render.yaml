@@ -15,3 +15,12 @@ services:
       # Render dashboard; leave it empty to hide the link.
       - key: SUPPORT_URL
         sync: false
+      # The contact address shown in the privacy policy (/privacy), which the app stores
+      # link to. Until it's set, the policy says contact details are coming soon.
+      - key: CONTACT_EMAIL
+        sync: false
+      # The line AdMob gives for app-ads.txt, e.g.
+      # "google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0". /app-ads.txt is a 404
+      # until it's set.
+      - key: APP_ADS_TXT
+        sync: false

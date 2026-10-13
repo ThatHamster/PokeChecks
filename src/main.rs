@@ -3,6 +3,7 @@
 mod api;
 mod calc_view;
 mod dex;
+mod privacy;
 mod saved;
 mod smogon;
 mod speed_view;
@@ -819,6 +820,20 @@ fn sheet(png: Option<axum::body::Bytes>, fallback: &'static str) -> Response {
     }
 }
 
+/// The privacy policy, which the app stores link to.
+async fn privacy_page(headers: HeaderMap) -> Html<String> {
+    let theme = Theme::from_cookie_header(cookie_header(&headers));
+    Html(privacy::privacy_page(theme).into_string())
+}
+
+/// AdMob's authorized sellers file, once `APP_ADS_TXT` is set in the host's settings.
+async fn app_ads_txt() -> Response {
+    match privacy::app_ads_txt() {
+        Some(txt) => ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], txt).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 /// For the host's health checks. Doesn't touch Smogon, so a slow download can't fail it.
 async fn health() -> &'static str {
     "ok"
@@ -879,6 +894,8 @@ async fn main() -> Result<()> {
         .route("/item-sprites.png", get(item_sprites))
         .route("/fonts/{file}", get(font))
         .route("/healthz", get(health))
+        .route("/privacy", get(privacy_page))
+        .route("/app-ads.txt", get(app_ads_txt))
         .route("/theme", get(set_theme))
         .route("/saved/save", post(save_team))
         .route("/saved/delete", post(delete_team))
