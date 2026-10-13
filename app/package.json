@@ -23,6 +23,7 @@
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.6.9",
     "@capacitor/ios": "^7.6.9",
+    "@capacitor/share": "^7.0.4",
     "@capacitor/splash-screen": "^7.0.5",
     "idb-keyval": "^6.2.2",
     "react": "^19.3.0",

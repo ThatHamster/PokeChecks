@@ -3,13 +3,15 @@
 
 import { useDeferredValue, useMemo, useState } from 'react';
 
+import { teamOf } from '../data/engineTypes';
 import { setFormat, useData } from '../data/store';
+import { addMember, useTeams } from '../data/teams';
 import type { Mon } from '../data/types';
 import { ItemIcon, MonIcon, Types, monthName, pct } from './bits';
 
 const STAT_LABELS = ['HP', 'Atk', 'Def', 'SpA', 'SpD', 'Spe'];
 
-export function UsageScreen() {
+export function UsageScreen({ onOpenBuilder }: { onOpenBuilder: () => void }) {
   const { manifest, format, usage } = useData();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
@@ -86,6 +88,7 @@ export function UsageScreen() {
                 index={i}
                 open={open === m.name}
                 onToggle={() => setOpen(open === m.name ? null : m.name)}
+                onOpenBuilder={onOpenBuilder}
               />
             ))}
           </ol>
@@ -111,11 +114,13 @@ function LadderRow({
   index,
   open,
   onToggle,
+  onOpenBuilder,
 }: {
   mon: Mon;
   index: number;
   open: boolean;
   onToggle: () => void;
+  onOpenBuilder: () => void;
 }) {
   return (
     // Rows bounce in one after another, capped so long lists don't wait.
@@ -133,7 +138,7 @@ function LadderRow({
         </span>
       </button>
       <span className="bar" style={{ width: `${Math.min(mon.usage, 100)}%` }} aria-hidden />
-      {open && <MonDetail mon={mon} />}
+      {open && <MonDetail mon={mon} onOpenBuilder={onOpenBuilder} />}
     </li>
   );
 }
@@ -157,10 +162,46 @@ function ShareList({ title, shares, items = false }: { title: string; shares: Mo
   );
 }
 
-function MonDetail({ mon }: { mon: Mon }) {
+/** Adds the Pokémon to the team being built in this format, or says why it can't. */
+function AddToTeam({ mon, onOpenBuilder }: { mon: Mon; onOpenBuilder: () => void }) {
+  const { engine, format } = useData();
+  const { current } = useTeams();
+  const members = current[format] ?? [];
+  const [message, setMessage] = useState<string | null>(null);
+  if (!engine) return null;
+  const onTeam = members.some((m) => m.name === mon.name);
+
+  const add = () => {
+    const tried = teamOf(engine, format, [...members, { name: mon.name, custom: null }]);
+    if (tried.members.length === members.length) {
+      setMessage(members.length >= 6 ? 'Your team is full.' : 'Another form of this species is already on your team.');
+      return;
+    }
+    addMember(format, mon.name);
+    setMessage(`Added on its most common set (${members.length + 1} / 6).`);
+  };
+
+  return (
+    <div className="add-to-team">
+      {onTeam ? (
+        <button className="go" onClick={onOpenBuilder}>
+          On your team · open builder
+        </button>
+      ) : (
+        <button className="go" onClick={add}>
+          + Add to team
+        </button>
+      )}
+      {message && <span className="muted small">{message}</span>}
+    </div>
+  );
+}
+
+function MonDetail({ mon, onOpenBuilder }: { mon: Mon; onOpenBuilder: () => void }) {
   const spread = mon.spreads[0];
   return (
     <div className="detail">
+      <AddToTeam mon={mon} onOpenBuilder={onOpenBuilder} />
       <ShareList title="Items" shares={mon.items.slice(0, 4)} items />
       <ShareList title="Abilities" shares={mon.abilities.slice(0, 3)} />
       <ShareList title="Moves" shares={mon.moves.slice(0, 6)} />

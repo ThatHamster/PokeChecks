@@ -4,10 +4,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { refresh, start, useData } from './data/store';
 import { AboutScreen } from './ui/AboutScreen';
+import { BuilderScreen } from './ui/BuilderScreen';
+import { closeTopSheet } from './ui/Sheet';
 import { UsageScreen } from './ui/UsageScreen';
 import { Ball } from './ui/bits';
 
-type Tab = 'usage' | 'about';
+type Tab = 'usage' | 'builder' | 'about';
 
 const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
   {
@@ -18,6 +20,18 @@ const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
         <rect x="3" y="12" width="4" height="9" rx="1.5" />
         <rect x="10" y="7" width="4" height="14" rx="1.5" />
         <rect x="17" y="3" width="4" height="18" rx="1.5" />
+      </svg>
+    ),
+  },
+  {
+    key: 'builder',
+    label: 'Builder',
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22">
+        <rect x="3" y="3" width="8" height="8" rx="2.5" />
+        <rect x="13" y="3" width="8" height="8" rx="2.5" />
+        <rect x="3" y="13" width="8" height="8" rx="2.5" />
+        <path d="M17 13.5v7M13.5 17h7" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" fill="none" />
       </svg>
     ),
   },
@@ -56,9 +70,10 @@ export function App() {
     return () => clearTimeout(timer);
   }, [status]);
 
-  // Android's back button goes back to Usage first, then leaves the app.
+  // Android's back button closes an open sheet, then goes back to Usage, then leaves the app.
   useEffect(() => {
     const listener = CapApp.addListener('backButton', () => {
+      if (closeTopSheet()) return;
       if (tab !== 'usage') setTab('usage');
       else void CapApp.exitApp();
     });
@@ -92,7 +107,9 @@ export function App() {
         <p className="banner warn">A newer version of PokeChecks is needed for the latest stats. Update it from the app store.</p>
       )}
       {offline && !outdated && <p className="banner">Offline · showing your saved stats</p>}
-      {tab === 'usage' ? <UsageScreen /> : <AboutScreen />}
+      {tab === 'usage' && <UsageScreen onOpenBuilder={() => setTab('builder')} />}
+      {tab === 'builder' && <BuilderScreen />}
+      {tab === 'about' && <AboutScreen />}
       <nav className="tabbar" aria-label="Sections">
         {TABS.map((t) => (
           <button key={t.key} aria-current={tab === t.key ? 'page' : undefined} onClick={() => setTab(t.key)}>
