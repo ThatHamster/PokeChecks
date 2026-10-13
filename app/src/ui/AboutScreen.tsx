@@ -65,6 +65,13 @@ export function AboutScreen() {
       {adsEnabled && <SupportPane />}
 
       <p className="disclaimer">
+        <a href="https://pokechecks.onrender.com/privacy" target="_blank" rel="noopener">
+          Privacy policy
+        </a>
+        {' · '}PokeChecks keeps your teams on your phone and has no accounts.
+      </p>
+
+      <p className="disclaimer">
         PokeChecks is an unofficial fan app. It isn’t affiliated with, endorsed or supported by
         Nintendo, Creatures Inc., GAME FREAK or The Pokémon Company. Pokémon and its names are
         trademarks of their respective owners. Sprites and item icons come from Pokémon Showdown.

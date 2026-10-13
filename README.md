@@ -74,6 +74,10 @@ fresh, or to the usage page.
 
 ## Privacy and security
 
+The full privacy policy, which the app stores link to, is at
+[`/privacy`](https://pokechecks.onrender.com/privacy) ([src/privacy.rs](src/privacy.rs)). The
+website's footer and the apps' About screen link to it.
+
 - Nothing is stored on the server. Your theme and saved teams live in cookies in your own
   browser, and there are no accounts, analytics or ads.
 - Pages make no requests to other sites: the fonts and Pokémon sprites are served by
@@ -120,6 +124,10 @@ Then open http://127.0.0.1:3000. Optional settings, as environment variables:
 - `PORT`: the port to listen on (default 3000).
 - `HOST`: the address to listen on (default `127.0.0.1`, this computer only; `0.0.0.0`
   accepts connections from other machines).
+- `CONTACT_EMAIL`: the contact address in the privacy policy at `/privacy`. Without it the
+  policy says contact details are coming soon.
+- `APP_ADS_TXT`: the line AdMob gives for `/app-ads.txt` (see "Ads in the apps"). Without it,
+  `/app-ads.txt` is a 404.
 - `SUPPORT_URL`: a support page starting with `https://`. A Ko-fi page
   (`https://ko-fi.com/name`) opens in the donation pop-up; any other page is a plain link.
   Without it, the support button and link are hidden.
@@ -293,8 +301,8 @@ Don't tap real ads in your own builds: it can get the AdMob account suspended.
    → Actions → Variables; they ship inside the app, so they aren't secrets):
    `VITE_ADMOB_ANDROID_BANNER`, `VITE_ADMOB_ANDROID_REWARDED`, `VITE_ADMOB_IOS_BANNER`,
    `VITE_ADMOB_IOS_REWARDED`.
-3. Serve `app-ads.txt` from the website with the line AdMob gives you
-   (`google.com, pub-…, DIRECT, f08c47fec0942fa0`), and list
+3. Set `APP_ADS_TXT` in the Render dashboard to the line AdMob gives you
+   (`google.com, pub-…, DIRECT, f08c47fec0942fa0`) so it's served at `/app-ads.txt`, and list
    `https://pokechecks.onrender.com` as the developer website in both store listings so
    AdMob can find it.
 4. In the stores: tick **Contains ads** on Google Play, and declare advertising data

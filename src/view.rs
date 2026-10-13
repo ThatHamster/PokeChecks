@@ -296,7 +296,7 @@ impl Theme {
 }
 
 /// Links to `/theme`, which stores the choice and sends the visitor back to `back`.
-fn theme_switch(theme: Theme, back: &str) -> Markup {
+pub(crate) fn theme_switch(theme: Theme, back: &str) -> Markup {
     html! {
         div {
             span.label { "Theme" }
@@ -420,7 +420,8 @@ pub(crate) fn site_footer(catalog: &Catalog) -> Markup {
             }
             "Move figures are the share of sets that carry the move. Base stats, types and sprites come from Pokémon Showdown."
             p.fine {
-                "PokeChecks is a free fan project, not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon and its names and images belong to them."
+                "PokeChecks is a free fan project, not affiliated with Nintendo, Game Freak, Creatures or The Pokémon Company. Pokémon and its names and images belong to them. "
+                a href="/privacy" { "Privacy policy" } "."
                 @if let Some(url) = support_url() {
                     " "
                     @if kofi_name(url).is_some() {
@@ -1000,6 +1001,20 @@ fn short_month(ym: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn footer_links_to_the_privacy_policy() {
+        let catalog = Catalog {
+            month: "2026-09".into(),
+            prev_month: None,
+            formats: vec![],
+        };
+        assert!(
+            site_footer(&catalog)
+                .into_string()
+                .contains(r#"<a href="/privacy">Privacy policy</a>"#)
+        );
+    }
 
     #[test]
     fn reads_kofi_names() {
