@@ -4,7 +4,9 @@
 use maud::{Markup, html};
 use serde::Deserialize;
 
-use crate::calc::{self, Combatant, Field, Outcome, Terrain, Weather};
+use crate::calc::{
+    self, Field, Outcome, SideInput, Terrain, Weather, damaging_moves, default_move,
+};
 use crate::dex::{Category, Dex, MoveData};
 use crate::smogon::{Catalog, FormatInfo, Kind, Meta, Mon, Spread};
 use crate::team::{
@@ -62,54 +64,6 @@ pub struct CalcParams {
     sent: Option<String>,
 }
 
-/// One side's set as chosen on the page.
-#[derive(Clone)]
-pub struct SideInput {
-    pub name: String,
-    pub item: Option<String>,
-    pub ability: Option<String>,
-    pub nature: String,
-    pub points: [u16; 6],
-    pub boost: i8,
-    pub burned: bool,
-}
-
-impl SideInput {
-    /// The Pokémon's most common set.
-    fn defaults(mon: &Mon) -> Self {
-        let spread = mon.top_spread();
-        Self {
-            name: mon.name.clone(),
-            item: mon.items.first().map(|i| i.name.clone()),
-            ability: mon.abilities.first().map(|a| a.name.clone()),
-            nature: spread.map_or_else(|| "Hardy".to_owned(), |s| s.nature.clone()),
-            points: spread.map_or([0; 6], |s| s.points),
-            boost: 0,
-            burned: false,
-        }
-    }
-
-    fn combatant(&self, dex: &Dex) -> Combatant {
-        let entry = dex.entry(&self.name);
-        Combatant {
-            name: self.name.clone(),
-            types: entry.map(|e| e.types.clone()).unwrap_or_default(),
-            base: entry.map_or([0; 6], |e| e.stats),
-            weight_kg: entry.map_or(0.0, |e| e.weight_kg),
-            item: self.item.clone(),
-            ability: self.ability.clone(),
-            nature: self.nature.clone(),
-            points: self.points,
-            boost: self.boost,
-            burned: self.burned,
-        }
-    }
-
-    fn total_points(&self) -> u16 {
-        self.points.iter().sum()
-    }
-}
-
 pub struct CalcState {
     pub attacker: SideInput,
     pub defender: SideInput,
@@ -131,32 +85,6 @@ fn non_empty(v: &Option<String>) -> Option<String> {
 
 fn find<'a>(meta: &'a Meta, name: Option<&str>) -> Option<&'a Mon> {
     name.and_then(|n| meta.mons.iter().find(|m| m.name == n))
-}
-
-/// Damaging moves the ladder uses on this Pokémon, most used first.
-fn damaging_moves<'a>(mon: &'a Mon, dex: &'a Dex) -> Vec<(&'a str, f64, &'a MoveData)> {
-    mon.moves
-        .iter()
-        .filter_map(|m| {
-            dex.move_data(&m.name)
-                .filter(|d| d.category != Category::Status)
-                .map(|d| (m.name.as_str(), m.pct, d))
-        })
-        .collect()
-}
-
-/// Share of sets a move needs before it can be the default.
-const COMMON_MOVE: f64 = 25.0;
-
-/// The strongest commonly used attack, so the calc opens on a main attack rather than a
-/// utility move like Fake Out. Falls back to the most used damaging move.
-fn default_move<'a>(moves: &[(&'a str, f64, &MoveData)]) -> Option<&'a str> {
-    moves
-        .iter()
-        .filter(|(_, pct, _)| *pct >= COMMON_MOVE)
-        .max_by_key(|(_, _, d)| d.base_power)
-        .or(moves.first())
-        .map(|(n, _, _)| *n)
 }
 
 impl CalcState {

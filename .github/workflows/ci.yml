@@ -37,6 +37,33 @@ jobs:
       - name: Tests
         run: cargo test --workspace --locked
 
+  wasm:
+    name: WASM build
+    runs-on: ubuntu-latest
+    env:
+      # The app bundles this file, so keep an eye on its size. It was 555 KB when added.
+      MAX_WASM_BYTES: 1000000
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # Must match the wasm-bindgen version pinned in crates/wasm/Cargo.toml.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - name: Build
+        run: |
+          cargo build -p pokechecks-wasm --target wasm32-unknown-unknown --profile wasm --locked
+          wasm-bindgen target/wasm32-unknown-unknown/wasm/pokechecks_wasm.wasm --target web --out-dir pkg
+      - name: Size check
+        run: |
+          size=$(stat -c %s pkg/pokechecks_wasm_bg.wasm)
+          echo "pokechecks_wasm_bg.wasm is $size bytes (limit $MAX_WASM_BYTES)"
+          test "$size" -le "$MAX_WASM_BYTES"
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest
