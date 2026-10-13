@@ -1,5 +1,6 @@
 //! PokeChecks: Pokémon Champions ranked usage next to base stats, served as plain HTML.
 
+mod api;
 mod calc_view;
 mod dex;
 mod saved;
@@ -881,7 +882,8 @@ async fn main() -> Result<()> {
         .route("/theme", get(set_theme))
         .route("/saved/save", post(save_team))
         .route("/saved/delete", post(delete_team))
-        .with_state(state)
+        .with_state(state.clone())
+        .merge(api::router(state))
         .layer(middleware::map_response(security_headers));
 
     let port: u16 = std::env::var("PORT")

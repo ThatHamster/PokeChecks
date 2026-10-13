@@ -2,7 +2,7 @@
 //! (<https://docs.limitlesstcg.com/developer.html>). Limitless runs VGC (doubles) events and
 //! names formats after the regulation, e.g. `M-C`.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::dex::Dex;
@@ -12,6 +12,7 @@ use crate::team::{Custom, Member};
 /// Only the top cut's teams are kept.
 pub const TOP_PLACINGS: u32 = 8;
 
+#[derive(Serialize, Deserialize)]
 pub struct Event {
     pub id: String,
     pub name: String,
@@ -30,6 +31,7 @@ impl Event {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct EntryTeam {
     pub placing: u32,
     pub player: String,
@@ -38,6 +40,7 @@ pub struct EntryTeam {
 }
 
 /// One Pokémon as written on an open team list.
+#[derive(Serialize, Deserialize)]
 pub struct ListMon {
     /// Limitless ID, which matches Showdown's (`indeedeef`).
     pub id: String,
@@ -87,6 +90,7 @@ pub struct LMon {
 }
 
 /// Tournament teams plus the regulation they were played under.
+#[derive(Serialize, Deserialize)]
 pub struct Tournaments {
     pub regulation: String,
     pub events: Vec<Event>,

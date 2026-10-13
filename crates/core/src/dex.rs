@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Showdown's ID format: lowercase ASCII letters and digits only.
@@ -13,6 +14,7 @@ pub fn to_id(s: &str) -> String {
         .collect()
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct DexEntry {
     /// Display name, e.g. `Charizard-Mega-Y`.
     pub name: String,
@@ -38,7 +40,7 @@ impl DexEntry {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Category {
     Physical,
     Special,
@@ -46,7 +48,7 @@ pub enum Category {
 }
 
 /// What the damage calculator needs to know about a move.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MoveData {
     pub name: String,
     pub base_power: u16,
@@ -75,6 +77,7 @@ pub struct MoveData {
     pub uses_target_attack: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Dex {
     entries: HashMap<String, DexEntry>,
     /// Move, item and ability IDs mapped to display names.

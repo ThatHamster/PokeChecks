@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::dex::Dex;
 
@@ -14,8 +14,19 @@ pub const LADDER_SIZE: usize = 80;
 /// How many options each set field offers in the team builder.
 const OPTION_LIMIT: usize = 40;
 const SPREAD_LIMIT: usize = 10;
+/// Decimal places kept for percentages and teammate shares. Pages show percentages to one
+/// place, and the app downloads this data, so the rest of a float's 17 digits is just weight.
+const KEPT_DECIMALS: i32 = 4;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// Rounds to `KEPT_DECIMALS` places. Sorting happens on the unrounded values first, so
+/// rounding never reorders anything.
+fn trim(x: f64) -> f64 {
+    let scale = 10f64.powi(KEPT_DECIMALS);
+    (x * scale).round() / scale
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Kind {
     Vgc,
     VgcBo3,
@@ -47,7 +58,7 @@ impl Kind {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FormatInfo {
     pub kind: Kind,
     /// File name without the rating suffix, e.g. `gen9championsvgc2026regmc`.
@@ -74,6 +85,7 @@ impl FormatInfo {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Catalog {
     pub month: String,
     pub prev_month: Option<String>,
@@ -87,11 +99,13 @@ impl Catalog {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Share {
     pub name: String,
     pub pct: f64,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Mon {
     pub name: String,
     pub rank: usize,
@@ -114,6 +128,7 @@ pub struct Mon {
 }
 
 /// A nature plus stat points (0–32 each) in HP/Atk/Def/SpA/SpD/Spe order.
+#[derive(Serialize, Deserialize)]
 pub struct Spread {
     pub nature: String,
     pub points: [u16; 6],
@@ -145,6 +160,7 @@ impl Mon {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Meta {
     pub battles: u64,
     pub cutoff: u32,
@@ -273,7 +289,10 @@ pub fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
                 .teammates
                 .iter()
                 .filter(|(other, _)| **other != name && ladder.contains(*other))
-                .map(|(other, c)| (other.clone(), c / sets))
+                .map(|(other, c)| (other.clone(), trim(c / sets)))
+                // Pairs that round to nothing count as never seen together, which is how
+                // teammate suggestions already treat a missing pair.
+                .filter(|(_, rate)| *rate > 0.0)
                 .collect();
 
             let mut parsed: Vec<(String, [u16; 6], f64)> = raw
@@ -293,7 +312,7 @@ pub fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
                 .map(|(nature, points, count)| Spread {
                     nature,
                     points,
-                    pct: count / sets * 100.0,
+                    pct: trim(count / sets * 100.0),
                 })
                 .collect();
 
@@ -305,9 +324,9 @@ pub fn build_meta(dex: &Dex, current: Chaos, prev: Option<&Chaos>) -> Meta {
                 pair_rates,
                 prev: prev
                     .and_then(|p| p.data.get(&name))
-                    .map(|p| p.usage * 100.0),
+                    .map(|p| trim(p.usage * 100.0)),
                 rank: i + 1,
-                usage: raw.usage * 100.0,
+                usage: trim(raw.usage * 100.0),
                 abilities: top_shares(&raw.abilities, 6, None, named),
                 items: top_shares(&raw.items, OPTION_LIMIT, None, named),
                 moves: top_shares(&raw.moves, OPTION_LIMIT, Some(sets), named),
@@ -343,7 +362,7 @@ fn top_shares(
         .take(n)
         .map(|(k, c)| Share {
             name: name(k),
-            pct: c / total * 100.0,
+            pct: trim(c / total * 100.0),
         })
         .collect()
 }
@@ -402,6 +421,13 @@ mod tests {
         assert_eq!(points, [32, 32, 0, 0, 2, 0]);
         assert!(Spread::parse("Adamant:32/32/0").is_none());
         assert!(Spread::parse("nonsense").is_none());
+    }
+
+    #[test]
+    fn rounding_keeps_four_places() {
+        assert_eq!(trim(12.345_678_9), 12.3457);
+        assert_eq!(trim(0.000_04), 0.0);
+        assert_eq!(trim(0.000_05), 0.0001);
     }
 
     #[test]
