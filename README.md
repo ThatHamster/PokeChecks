@@ -212,9 +212,15 @@ So far it has:
   matchups with problem types highlighted, Speed order, teammate suggestions in the
   picker, and a Showdown export with Copy and Share. The team in each format is kept on
   the phone, and any number of teams can be saved by name.
+- **Damage calc:** both sides open on their most common sets; tap either Pokémon to change
+  it, "Edit set" for its item, ability, nature and stat points, and steppers for stat
+  stages and burn. The result shows the description line, damage range, KO chance, an HP
+  bar and all 16 rolls, with every other common attack's range on its move button.
+  Weather, terrain, critical hits, Helping Hand, screens and spread hits are one tap. A
+  team member's "Calc" button opens it as the attacker on its exact set.
 - **About**, with the fan-app disclaimer.
 
-The damage calc, tournament teams and speed tiers come next.
+Tournament teams and speed tiers come next.
 
 The styles include plain fallbacks for `color-mix()` and `dvh`, so phones with an older
 Android System WebView (before Chrome 111) still get a working layout.

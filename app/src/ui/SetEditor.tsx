@@ -42,12 +42,17 @@ export function SetEditor({
   onSave,
   onReset,
   onClose,
+  showMoves = true,
+  resetLabel = 'Reset to most common',
 }: {
   set: SetResult;
   mon: Mon;
   onSave: (custom: Custom) => void;
   onReset: () => void;
   onClose: () => void;
+  /** The calc picks its move separately, so its editor leaves moves out. */
+  showMoves?: boolean;
+  resetLabel?: string;
 }) {
   const { engine } = useData();
   const [draft, setDraft] = useState<Custom>(() => draftFrom(set));
@@ -93,7 +98,7 @@ export function SetEditor({
         <>
           {set.custom && (
             <button className="ghost" onClick={onReset}>
-              Reset to most common
+              {resetLabel}
             </button>
           )}
           <button className="go" disabled={problem !== null} onClick={() => onSave(draft)}>
@@ -135,6 +140,7 @@ export function SetEditor({
         </select>
       </label>
 
+      {showMoves && (
       <fieldset className="field">
         <legend className="label">Moves</legend>
         <div className="move-grid">
@@ -151,6 +157,7 @@ export function SetEditor({
           ))}
         </div>
       </fieldset>
+      )}
 
       <label className="field">
         <span className="label">Nature</span>

@@ -99,6 +99,9 @@ pub struct CalcResult {
     pub max_percent: f64,
     /// "Guaranteed OHKO", "43.8% chance to 2HKO" and so on.
     pub ko: String,
+    /// The calc in one line, as on the website: `32+ Atk Miracle Seed Rillaboom Wood Hammer
+    /// vs. 2 HP / 0 Def Psychic Seed Sneasler in Grassy Terrain`.
+    pub description: String,
     /// Level 50 stats, HP/Atk/Def/SpA/SpD/Spe.
     pub attacker_stats: [u32; 6],
     pub defender_stats: [u32; 6],
@@ -332,6 +335,7 @@ impl Engine {
         let outcome = calc::calculate(&att, &def, mv, &field);
         let (min_percent, max_percent, ko) = summary(&outcome);
         Ok(CalcResult {
+            description: calc::describe(&req.attacker, &req.defender, mv, &field, &outcome),
             outcome,
             min_percent,
             max_percent,
@@ -696,6 +700,7 @@ mod tests {
         assert_eq!(got.outcome.rolls, want.rolls);
         assert_eq!(got.ko, calc::ko_chance(&want.rolls, want.defender_hp));
         assert_eq!(got.attacker_stats[0], start.attacker.combatant(&dex).hp());
+        assert!(got.description.contains("Incineroar Flare Blitz vs."));
         let others: Vec<&str> = got.other_moves.iter().map(|m| m.name.as_str()).collect();
         assert_eq!(
             others,

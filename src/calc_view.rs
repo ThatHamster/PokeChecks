@@ -10,8 +10,7 @@ use crate::calc::{
 use crate::dex::{Category, Dex, MoveData};
 use crate::smogon::{Catalog, FormatInfo, Kind, Meta, Mon, Spread};
 use crate::team::{
-    MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, NATURES, STAT_LABELS, nature_effect, nature_label,
-    points_line,
+    MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, NATURES, STAT_LABELS, nature_label, points_line,
 };
 use crate::team_view::option_list;
 use crate::view::{
@@ -457,73 +456,7 @@ fn results(state: &CalcState, att_mon: &Mon, dex: &Dex, vs: &ViewState, doubles:
 
 /// Showdown-style summary line, the damage range, an HP bar and the KO chance.
 fn headline(state: &CalcState, o: &Outcome, mv: &MoveData, field: &Field) -> Markup {
-    let physical = mv.category == Category::Physical;
-    let attack_index = if mv.uses_defense {
-        2
-    } else if physical {
-        1
-    } else {
-        3
-    };
-    let defense_index = if physical || mv.targets_defense { 2 } else { 4 };
-    let a = &state.attacker;
-    let d = &state.defender;
-
-    let stat_part = |side: &SideInput, i: usize| {
-        let sign = match nature_effect(&side.nature) {
-            Some((up, _)) if up == i => "+",
-            Some((_, down)) if down == i => "−",
-            _ => "",
-        };
-        format!("{}{sign} {}", side.points[i], STAT_LABELS[i])
-    };
-    let boost = |b: i8| match b {
-        0 => String::new(),
-        b if b > 0 => format!("+{b} "),
-        b => format!("−{} ", -b),
-    };
-    let mut line = format!(
-        "{}{} {}{} {}",
-        boost(a.boost),
-        stat_part(a, attack_index),
-        a.item
-            .as_deref()
-            .map(|i| format!("{i} "))
-            .unwrap_or_default(),
-        a.name,
-        mv.name
-    );
-    line.push_str(&format!(
-        " vs. {}{} HP / {} {}{}",
-        boost(d.boost),
-        d.points[0],
-        stat_part(d, defense_index),
-        d.item
-            .as_deref()
-            .map(|i| format!("{i} "))
-            .unwrap_or_default(),
-        d.name
-    ));
-    let mut extras = Vec::new();
-    if let Some(w) = field.weather {
-        extras.push(format!("in {}", w.label()));
-    }
-    if let Some(t) = field.terrain {
-        extras.push(format!("in {}", t.label()));
-    }
-    if field.helping_hand {
-        extras.push("with Helping Hand".into());
-    }
-    if field.screen && !o.crit {
-        extras.push("through a screen".into());
-    }
-    if o.crit {
-        extras.push("on a critical hit".into());
-    }
-    if !extras.is_empty() {
-        line.push(' ');
-        line.push_str(&extras.join(" "));
-    }
+    let line = calc::describe(&state.attacker, &state.defender, mv, field, o);
 
     // The HP bar can't show more than 100%; the text shows the real numbers.
     let (lo, hi) = (o.percent(o.min()).min(100.0), o.percent(o.max()).min(100.0));
