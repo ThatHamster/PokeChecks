@@ -19,17 +19,6 @@ form in a small pop-up, so visitors can donate without leaving the page. It uses
 browser's built-in popover, still with no JavaScript, and Ko-fi isn't contacted until someone
 opens it.
 
-## Privacy and security
-
-- Nothing is stored on the server. Your theme and saved teams live in cookies in your own
-  browser, and there are no accounts, analytics or ads.
-- Pages make no requests to other sites: the fonts and Pokémon sprites are served by
-  PokeChecks itself. The only exception is Ko-fi's donation form, loaded when you open the
-  support pop-up.
-- Every response carries a strict Content Security Policy that allows no scripts at all, and
-  PokeChecks can't be shown inside another site's frame. Saved teams can only be added or
-  deleted from PokeChecks itself, not by forms on other sites.
-
 Every meta team and tournament team has a "How this team plays" section for newer players:
 a short starting plan (the team's main idea, a simple lead, which Pokémon to Mega Evolve,
 who does the damage) and what each Pokémon is there to do. It's worked out from the team's
@@ -69,6 +58,26 @@ The pages share one URL, so links keep the format, comparison and team:
   regulation on [Limitless](https://play.limitlesstcg.com/tournaments?game=VGC), refreshed
   every three hours. Any team opens in the builder; team lists have no stat points, so the
   builder fills them in from the most common spread for each Pokémon and nature.
+
+The header says which month's stats you're looking at, such as "Stats from September 2026":
+the month the battles were played. Smogon publishes each month's stats in the first days of
+the next month, so it trails the calendar by about a month.
+
+A link PokeChecks can't read, such as one edited to give a setting twice
+(`/speed?add=Kingambit&add=Pelipper`), opens a friendly "This link doesn't look quite right"
+page instead of an error. It names the repeated setting and links to the same page started
+fresh, or to the usage page.
+
+## Privacy and security
+
+- Nothing is stored on the server. Your theme and saved teams live in cookies in your own
+  browser, and there are no accounts, analytics or ads.
+- Pages make no requests to other sites: the fonts and Pokémon sprites are served by
+  PokeChecks itself. The only exception is Ko-fi's donation form, loaded when you open the
+  support pop-up.
+- Every response carries a strict Content Security Policy that allows no scripts at all, and
+  PokeChecks can't be shown inside another site's frame. Saved teams can only be added or
+  deleted from PokeChecks itself, not by forms on other sites.
 
 ## Screenshots
 

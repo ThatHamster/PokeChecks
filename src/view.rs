@@ -374,7 +374,12 @@ pub(crate) fn site_header(
                 p.dek { (dek) }
             }
             div.ladder-meta {
-                div { span.label { "Month" } strong { (month_name(&catalog.month)) } }
+                // The month the battles were played. Smogon publishes a month's stats early the
+                // next month, so this trails the calendar by one.
+                div title="The month these battles were played. Smogon publishes each month’s stats in the first days of the next month, so this is the newest available." {
+                    span.label { "Stats from" }
+                    strong { (month_name(&catalog.month)) }
+                }
                 div { span.label { "Battles" } strong.num { (thousands(meta.battles)) } }
                 div {
                     span.label { "Rating cutoff" }
