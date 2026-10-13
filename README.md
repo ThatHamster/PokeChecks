@@ -136,6 +136,24 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
+## Load test
+
+`python scripts/loadtest.py` simulates visitors using a local server at the same time: each
+has their own cookies, clicks around, uses the damage calc and speed tiers, and saves and
+deletes teams. It reports failures, response times per page, and whether any visitor ever
+saw another's saved teams, and exits with an error if anything failed.
+
+```
+python scripts/loadtest.py 50 --seconds 120 --think 1 3
+python scripts/loadtest.py --burst 60
+```
+
+The first runs 50 visitors pausing 1–3 seconds between clicks; `--think 0 0` runs them flat
+out. `--burst` sends requests for every format and cutoff at once, to check a cold server
+downloads each file only once. To mimic Render Starter, run the Docker image with
+`--cpus=0.5 --memory=512m` and pass `--base http://127.0.0.1:10000`. It only targets local
+servers unless given `--allow-remote`, so it can't slow the live site down by accident.
+
 ## Deploy
 
 The repo is set up for [Render](https://render.com), which redeploys on every push to `main`:
