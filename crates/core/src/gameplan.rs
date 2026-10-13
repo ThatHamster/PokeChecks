@@ -2,6 +2,8 @@
 //! items. Teams change every month, so nothing here is written by hand: each Pokémon's job
 //! is recognised from its set, and the plan is assembled from those jobs.
 
+use serde::Serialize;
+
 use crate::dex::Dex;
 use crate::team::{is_mega, nature_effect};
 use crate::tournaments::ListMon;
@@ -85,11 +87,13 @@ enum Setup {
 }
 
 /// One job a Pokémon does, explained for someone new to competitive play.
+#[derive(Serialize)]
 pub struct Role {
     pub label: &'static str,
     pub detail: String,
 }
 
+#[derive(Serialize)]
 pub struct GamePlan {
     /// The team's main idea, e.g. `Rain` or `Trick Room`, if it has one.
     pub style: Option<&'static str>,

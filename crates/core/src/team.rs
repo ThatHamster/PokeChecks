@@ -197,7 +197,7 @@ pub const MAX_POINTS_TOTAL: u16 = 66;
 pub const MOVE_SLOTS: usize = 4;
 
 /// A set a visitor chose for one team member, replacing its usage defaults.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Custom {
     pub item: Option<String>,
     pub ability: Option<String>,
@@ -295,7 +295,7 @@ impl Custom {
 }
 
 /// One team slot: a Pokémon, plus the set the visitor chose if they changed it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Member {
     pub name: String,
     pub custom: Option<Custom>,
@@ -502,6 +502,7 @@ pub fn showdown_paste(sets: &[Set], dex: &Dex) -> String {
 }
 
 /// How the whole team takes one attacking type.
+#[derive(serde::Serialize)]
 pub struct Matchup {
     pub attack: &'static str,
     /// One multiplier per team member, in team order.

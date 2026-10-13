@@ -153,6 +153,21 @@ building and game plans. It does no networking and renders no HTML, so the serve
 mobile app (through WebAssembly) can share it. The server in `src/` downloads the data and
 renders the pages.
 
+`crates/wasm` (`pokechecks-wasm`) wraps the core for the app. The app hands its downloaded
+`/api/v1` data to an `Engine` and asks it for damage calcs, team stats, teammate
+suggestions, game plans and tournament team imports, all on the device. To build it you need
+the `wasm32-unknown-unknown` target and the matching `wasm-bindgen` command:
+
+```
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+cargo build -p pokechecks-wasm --target wasm32-unknown-unknown --profile wasm
+wasm-bindgen target/wasm32-unknown-unknown/wasm/pokechecks_wasm.wasm --target web --out-dir pkg
+```
+
+That writes `pkg/pokechecks_wasm.js`, its TypeScript types, and a 555 KB `.wasm` file
+(146 KB compressed).
+
 ## API for the mobile app
 
 The mobile app downloads its data from a small read-only JSON API and keeps a copy, so it
@@ -185,8 +200,8 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-GitHub Actions runs these, plus `cargo fmt --check` and a Docker build of the image Render
-deploys, on every pull request and push to `main` (`.github/workflows/ci.yml`).
+GitHub Actions runs these, plus `cargo fmt --check`, the WebAssembly build (failing if the
+`.wasm` file passes 1 MB) and a Docker build of the image Render deploys, on every pull request and push to `main` (`.github/workflows/ci.yml`).
 
 ## Load test
 

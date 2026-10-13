@@ -3,7 +3,10 @@
 //! stats, base damage, spread, weather, critical hit, random roll, STAB, type, burn, then
 //! the final modifiers.
 
-use crate::dex::{Category, MoveData};
+use serde::{Deserialize, Serialize};
+
+use crate::dex::{Category, Dex, MoveData};
+use crate::smogon::Mon;
 use crate::team::{level50_stat, multiplier};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,6 +157,81 @@ impl Combatant {
     }
 }
 
+/// One side's set as chosen in the calc, before the Dex fills in types and base stats.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SideInput {
+    pub name: String,
+    pub item: Option<String>,
+    pub ability: Option<String>,
+    pub nature: String,
+    pub points: [u16; 6],
+    /// Stat stage of the stat this side uses in the calc, −6 to +6.
+    pub boost: i8,
+    pub burned: bool,
+}
+
+impl SideInput {
+    /// The Pokémon's most common set.
+    pub fn defaults(mon: &Mon) -> Self {
+        let spread = mon.top_spread();
+        Self {
+            name: mon.name.clone(),
+            item: mon.items.first().map(|i| i.name.clone()),
+            ability: mon.abilities.first().map(|a| a.name.clone()),
+            nature: spread.map_or_else(|| "Hardy".to_owned(), |s| s.nature.clone()),
+            points: spread.map_or([0; 6], |s| s.points),
+            boost: 0,
+            burned: false,
+        }
+    }
+
+    pub fn combatant(&self, dex: &Dex) -> Combatant {
+        let entry = dex.entry(&self.name);
+        Combatant {
+            name: self.name.clone(),
+            types: entry.map(|e| e.types.clone()).unwrap_or_default(),
+            base: entry.map_or([0; 6], |e| e.stats),
+            weight_kg: entry.map_or(0.0, |e| e.weight_kg),
+            item: self.item.clone(),
+            ability: self.ability.clone(),
+            nature: self.nature.clone(),
+            points: self.points,
+            boost: self.boost,
+            burned: self.burned,
+        }
+    }
+
+    pub fn total_points(&self) -> u16 {
+        self.points.iter().sum()
+    }
+}
+
+/// Damaging moves the ladder uses on this Pokémon, most used first.
+pub fn damaging_moves<'a>(mon: &'a Mon, dex: &'a Dex) -> Vec<(&'a str, f64, &'a MoveData)> {
+    mon.moves
+        .iter()
+        .filter_map(|m| {
+            dex.move_data(&m.name)
+                .filter(|d| d.category != Category::Status)
+                .map(|d| (m.name.as_str(), m.pct, d))
+        })
+        .collect()
+}
+
+/// Share of sets a move needs before it can be the default.
+const COMMON_MOVE: f64 = 25.0;
+
+/// The strongest commonly used attack, so the calc opens on a main attack rather than a
+/// utility move like Fake Out. Falls back to the most used damaging move.
+pub fn default_move<'a>(moves: &[(&'a str, f64, &MoveData)]) -> Option<&'a str> {
+    moves
+        .iter()
+        .filter(|(_, pct, _)| *pct >= COMMON_MOVE)
+        .max_by_key(|(_, _, d)| d.base_power)
+        .or(moves.first())
+        .map(|(n, _, _)| *n)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Field {
     pub doubles: bool,
@@ -167,6 +245,7 @@ pub struct Field {
     pub screen: bool,
 }
 
+#[derive(Serialize)]
 pub struct Outcome {
     /// Total damage for each of the 16 random rolls, lowest first.
     pub rolls: [u32; 16],
