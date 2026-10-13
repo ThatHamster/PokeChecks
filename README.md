@@ -158,6 +158,9 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+GitHub Actions runs these, plus `cargo fmt --check` and a Docker build of the image Render
+deploys, on every pull request and push to `main` (`.github/workflows/ci.yml`).
+
 ## Load test
 
 `python scripts/loadtest.py` simulates visitors using a local server at the same time: each

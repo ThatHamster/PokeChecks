@@ -1,0 +1,53 @@
+# Checks every pull request and every push to main. The job names are what branch
+# protection's required checks refer to, so rename them there too if they change here.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes an older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Matches rust-version in Cargo.toml and the Dockerfile's rust image.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --locked
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      # The same Dockerfile Render builds, so a broken deploy shows up here first.
+      # Nothing is pushed anywhere.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
