@@ -79,6 +79,8 @@ fresh, or to the usage page.
 - Pages make no requests to other sites: the fonts and Pokémon sprites are served by
   PokeChecks itself. The only exception is Ko-fi's donation form, loaded when you open the
   support pop-up.
+- The `/api/v1` data the mobile app uses is public and read-only, so any site may read it.
+  It carries no cookies or saved teams.
 - Every response carries a strict Content Security Policy that allows no scripts at all, and
   PokeChecks can't be shown inside another site's frame. Saved teams can only be added or
   deleted from PokeChecks itself, not by forms on other sites.
@@ -150,6 +152,31 @@ battle logic: the Pokédex, usage stats, tournament team lists, the damage calc,
 building and game plans. It does no networking and renders no HTML, so the server and the
 mobile app (through WebAssembly) can share it. The server in `src/` downloads the data and
 renders the pages.
+
+## API for the mobile app
+
+The mobile app downloads its data from a small read-only JSON API and keeps a copy, so it
+works offline:
+
+| Endpoint | What it returns | Compressed size |
+| --- | --- | --- |
+| `GET /api/v1/manifest` | The stats month and each format's regulation and rating cutoffs | under 1 KB |
+| `GET /api/v1/dex` | Showdown's Pokédex, moves, names and icon positions | about 105 KB |
+| `GET /api/v1/usage/{format}?cutoff=1630` | Ranked usage with common sets and teammates; `format` is `vgc`, `vgc-bo3` or `bss`, and the cutoff defaults to the format's usual one | 200–450 KB |
+| `GET /api/v1/tournaments` | Top teams from recent large events | about 25 KB |
+| `GET /api/v1/sprites/pokemon.png`, `/items.png` | The icon sheets | 390 KB, 90 KB |
+
+Every JSON response has an `ETag`; the app sends it back in `If-None-Match` and gets a
+`304 Not Modified` when nothing changed. Responses are compressed (Brotli or gzip), and any
+site or app may read them (`Access-Control-Allow-Origin: *`), since they're public and
+read-only. The rest of the site still can't be read by other sites. Errors come back as
+`{"error": "..."}`, with 404 for an unknown format or cutoff and 502 when Smogon or
+Limitless can't be reached. `manifest.schema` goes up if a response changes in a way older
+app versions can't read.
+
+Usage percentages are kept to 4 decimal places and teammate shares to 0.01%, for the
+website too. Pages show one decimal place, so nothing visible changes, but the usage file
+for VGC shrinks from 4.2 MB to 2.4 MB.
 
 ## Test
 
