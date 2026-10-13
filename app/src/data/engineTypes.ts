@@ -158,3 +158,30 @@ export function calcStart(engine: Engine, format: FormatKey, attacker?: string, 
 export function runCalc(engine: Engine, format: FormatKey, req: CalcRequest): CalcResult {
   return engine.calc(format, req) as CalcResult;
 }
+
+// ---------- Tournament teams ----------
+
+export interface TeamInfo {
+  /** The forms each Pokémon battles as (`Charizard` + `Charizardite Y` → `Charizard-Mega-Y`). */
+  forms: string[];
+  species: string[];
+  archetypes: string[];
+}
+
+export interface Role {
+  label: string;
+  detail: string;
+}
+
+export interface GamePlan {
+  /** The team's main idea, e.g. `Rain` or `Trick Room`. */
+  style: string | null;
+  steps: string[];
+  /** Each Pokémon with its jobs, in team order. */
+  roles: [string, Role[]][];
+}
+
+export interface ImportResult {
+  members: Member[];
+  missing: string[];
+}

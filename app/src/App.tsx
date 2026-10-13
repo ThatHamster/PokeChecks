@@ -6,11 +6,13 @@ import { refresh, start, useData } from './data/store';
 import { AboutScreen } from './ui/AboutScreen';
 import { BuilderScreen } from './ui/BuilderScreen';
 import { CalcScreen } from './ui/CalcScreen';
+import { TeamsScreen } from './ui/TeamsScreen';
 import { closeTopSheet } from './ui/Sheet';
 import { UsageScreen } from './ui/UsageScreen';
 import { Ball } from './ui/bits';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 
-type Tab = 'usage' | 'builder' | 'calc' | 'about';
+type Tab = 'usage' | 'builder' | 'calc' | 'teams' | 'about';
 
 const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
   {
@@ -42,6 +44,15 @@ const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
     icon: (
       <svg viewBox="0 0 24 24" width="22" height="22">
         <path d="M13.5 2 5 13.5h6L9.5 22 19 9.5h-6.2z" />
+      </svg>
+    ),
+  },
+  {
+    key: 'teams',
+    label: 'Teams',
+    icon: (
+      <svg viewBox="0 0 24 24" width="22" height="22">
+        <path d="M6 3h12v3a4 4 0 0 1-3 3.9V12a3 3 0 0 1-2 2.8V18h3v3H8v-3h3v-3.2A3 3 0 0 1 9 12V9.9A4 4 0 0 1 6 6zM3 5h2v2a2 2 0 0 0 1 1.7v2.1A4 4 0 0 1 3 7zm18 0v2a4 4 0 0 1-3 3.8V8.7A2 2 0 0 0 19 7V5z" />
       </svg>
     ),
   },
@@ -117,10 +128,13 @@ export function App() {
         <p className="banner warn">A newer version of PokeChecks is needed for the latest stats. Update it from the app store.</p>
       )}
       {offline && !outdated && <p className="banner">Offline · showing your saved stats</p>}
-      {tab === 'usage' && <UsageScreen onOpenBuilder={() => setTab('builder')} />}
-      {tab === 'builder' && <BuilderScreen onOpenCalc={() => setTab('calc')} />}
-      {tab === 'calc' && <CalcScreen />}
-      {tab === 'about' && <AboutScreen />}
+      <ErrorBoundary key={tab}>
+        {tab === 'usage' && <UsageScreen onOpenBuilder={() => setTab('builder')} />}
+        {tab === 'builder' && <BuilderScreen onOpenCalc={() => setTab('calc')} />}
+        {tab === 'calc' && <CalcScreen />}
+        {tab === 'teams' && <TeamsScreen onOpenBuilder={() => setTab('builder')} />}
+        {tab === 'about' && <AboutScreen />}
+      </ErrorBoundary>
       <nav className="tabbar" aria-label="Sections">
         {TABS.map((t) => (
           <button key={t.key} aria-current={tab === t.key ? 'page' : undefined} onClick={() => setTab(t.key)}>

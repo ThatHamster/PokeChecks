@@ -171,6 +171,24 @@ pub struct PlanResult {
     pub plan: GamePlan,
 }
 
+/// What the tournament filters need about one team list, without the game plan's text.
+#[derive(Serialize)]
+pub struct TeamInfo {
+    /// The forms each Pokémon battles as: `Charizard` holding `Charizardite Y` is
+    /// `Charizard-Mega-Y`.
+    pub forms: Vec<String>,
+    /// Each form's base species, so "Charizard" can match its Megas.
+    pub species: Vec<String>,
+    /// Archetype keys such as `rain` or `trick-room`.
+    pub archetypes: Vec<&'static str>,
+}
+
+#[derive(Serialize)]
+pub struct ArchetypeInfo {
+    pub key: &'static str,
+    pub label: &'static str,
+}
+
 #[derive(Serialize)]
 pub struct ImportResult {
     /// The team list as builder members, stat points filled in from common spreads.
@@ -419,6 +437,35 @@ impl Engine {
         }
     }
 
+    /// The battle forms, species and archetypes of a tournament team list.
+    pub fn team_info(&self, list: &[ListMon]) -> TeamInfo {
+        let mons: Vec<PlanMon> = list
+            .iter()
+            .map(|m| PlanMon::from_list(m, &self.dex))
+            .collect();
+        TeamInfo {
+            species: mons
+                .iter()
+                .map(|m| self.dex.species(&m.name).to_owned())
+                .collect(),
+            archetypes: gameplan::archetypes(&mons)
+                .into_iter()
+                .map(gameplan::Archetype::key)
+                .collect(),
+            forms: mons.into_iter().map(|m| m.name).collect(),
+        }
+    }
+
+    /// A team list as Showdown import text, exactly as written (no stat points).
+    pub fn list_paste(&self, list: Vec<ListMon>) -> String {
+        tournaments::team_list_paste(&tournaments::EntryTeam {
+            placing: 0,
+            player: String::new(),
+            record: None,
+            members: list,
+        })
+    }
+
     /// A tournament team list as team builder members.
     pub fn import_team(&self, format: &str, list: Vec<ListMon>) -> Result<ImportResult, String> {
         let meta = self.meta(format)?;
@@ -447,6 +494,17 @@ pub fn natures() -> Vec<Nature> {
         .map(|&name| Nature {
             name,
             label: team::nature_label(name),
+        })
+        .collect()
+}
+
+/// The archetypes the tournament filters offer, in order, with their labels.
+pub fn archetypes() -> Vec<ArchetypeInfo> {
+    gameplan::Archetype::ALL
+        .iter()
+        .map(|a| ArchetypeInfo {
+            key: a.key(),
+            label: a.label(),
         })
         .collect()
 }
@@ -545,11 +603,28 @@ impl Engine {
         to_js(&self.plan(&list, doubles))
     }
 
+    #[wasm_bindgen(js_name = teamInfo)]
+    pub fn js_team_info(&self, list: JsValue) -> Result<JsValue, JsError> {
+        let list: Vec<ListMon> = from_js(list)?;
+        to_js(&self.team_info(&list))
+    }
+
+    #[wasm_bindgen(js_name = listPaste)]
+    pub fn js_list_paste(&self, list: JsValue) -> Result<String, JsError> {
+        Ok(self.list_paste(from_js(list)?))
+    }
+
     #[wasm_bindgen(js_name = importTeam)]
     pub fn js_import_team(&self, format: &str, list: JsValue) -> Result<JsValue, JsError> {
         let list: Vec<ListMon> = from_js(list)?;
         to_js(&self.import_team(format, list).map_err(js_err)?)
     }
+}
+
+/// `archetypes()`: every archetype key with its label, in filter order.
+#[wasm_bindgen(js_name = archetypes)]
+pub fn js_archetypes() -> Result<JsValue, JsError> {
+    to_js(&archetypes())
 }
 
 /// `natures()`: all 25 natures with labels like `Adamant (+Atk −SpA)`.
@@ -821,6 +896,17 @@ mod tests {
                 moves: vec!["Fake Out".into(), "Flare Blitz".into()],
             },
         ];
+        let info = engine.team_info(&list);
+        assert_eq!(info.forms, ["Pelipper", "Incineroar"]);
+        assert_eq!(info.species, ["Pelipper", "Incineroar"]);
+        assert!(info.archetypes.contains(&"rain"));
+        assert!(engine.list_paste(list.clone()).starts_with(
+            "Pelipper @ Focus Sash
+"
+        ));
+        assert_eq!(archetypes().len(), 7);
+        assert_eq!(archetypes()[0].key, "sun");
+
         let plan = engine.plan(&list, true);
         assert!(plan.archetypes.contains(&"rain"));
         assert!(!plan.plan.steps.is_empty());

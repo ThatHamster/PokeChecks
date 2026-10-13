@@ -93,6 +93,19 @@ export function setCustom(format: FormatKey, index: number, custom: Custom | nul
   );
 }
 
+/** A message for the builder to show when it next opens, e.g. after importing a team. */
+let pendingNotice: string | null = null;
+
+export function noticeForBuilder(message: string) {
+  pendingNotice = message;
+}
+
+export function takeBuilderNotice(): string | null {
+  const message = pendingNotice;
+  pendingNotice = null;
+  return message;
+}
+
 async function writeSaved(saved: SavedTeam[]) {
   update({ ...state, saved });
   await set(SAVED_KEY, saved);
