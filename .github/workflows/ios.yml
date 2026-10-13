@@ -31,6 +31,10 @@ jobs:
     name: Build for iOS Simulator
     runs-on: macos-15
     timeout-minutes: 40
+    env:
+      # AdMob ad unit ids; without them the app shows Google's test ads. See android.yml.
+      VITE_ADMOB_IOS_BANNER: ${{ vars.VITE_ADMOB_IOS_BANNER }}
+      VITE_ADMOB_IOS_REWARDED: ${{ vars.VITE_ADMOB_IOS_REWARDED }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master

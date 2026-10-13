@@ -3,6 +3,7 @@
 
 import { useDeferredValue, useMemo, useState } from 'react';
 
+import { useUsageBanner } from '../ads/ads';
 import { teamOf } from '../data/engineTypes';
 import { setFormat, useData } from '../data/store';
 import { addMember, useTeams } from '../data/teams';
@@ -16,6 +17,8 @@ export function UsageScreen({ onOpenBuilder, onOpenAbout }: { onOpenBuilder: () 
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const deferred = useDeferredValue(query);
+  // The apps' one banner sits above the tab bar on this screen only.
+  const bannerHeight = useUsageBanner();
   const meta = usage[format];
   const info = manifest?.formats.find((f) => f.key === format);
 
@@ -97,6 +100,7 @@ export function UsageScreen({ onOpenBuilder, onOpenAbout }: { onOpenBuilder: () 
           </ol>
         )}
       </section>
+      {bannerHeight > 0 && <div className="banner-space" style={{ height: bannerHeight + 8 }} aria-hidden />}
     </main>
   );
 }
