@@ -201,9 +201,23 @@ data once, keeps it on the phone, and runs the battle logic through the WebAssem
 so it works offline. When it opens, or comes back to the foreground, it asks the server for
 anything newer using the saved ETags and downloads only what changed.
 
-So far it has the usage ladder for each format, with each Pokémon's common items,
-abilities, moves, spread and teammates, plus an About screen with the fan-app disclaimer.
-The team builder, damage calc, tournament teams and speed tiers come next.
+So far it has:
+
+- **Usage:** the ladder for each format, with each Pokémon's common items, abilities,
+  moves, spread and teammates, and an "Add to team" button.
+- **Team builder:** up to six Pokémon on their most common sets, following the item
+  clause and the one-form-per-species rule. "Edit set" opens a sheet for the item,
+  ability, moves and nature (each showing its ladder usage), stat point steppers held to
+  the Champions limits, and one-tap common spreads. Below the team: level 50 stats, type
+  matchups with problem types highlighted, Speed order, teammate suggestions in the
+  picker, and a Showdown export with Copy and Share. The team in each format is kept on
+  the phone, and any number of teams can be saved by name.
+- **About**, with the fan-app disclaimer.
+
+The damage calc, tournament teams and speed tiers come next.
+
+The styles include plain fallbacks for `color-mix()` and `dvh`, so phones with an older
+Android System WebView (before Chrome 111) still get a working layout.
 
 Set up once (Node 22, plus the Rust tools from "Code layout" above):
 

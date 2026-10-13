@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 use pokechecks_core::calc::{self, Field, Outcome, SideInput, Terrain, Weather};
-use pokechecks_core::dex::{Category, Dex};
+use pokechecks_core::dex::{Category, Dex, MoveData};
 use pokechecks_core::gameplan::{self, GamePlan, PlanMon};
 use pokechecks_core::smogon::{Meta, Mon};
 use pokechecks_core::team::{self, Custom, Matchup, Member};
@@ -229,6 +229,19 @@ impl Engine {
             .unwrap_or_default()
     }
 
+    /// A move's type, category, power and flags, for showing it with its type badge.
+    pub fn move_info(&self, name: &str) -> Option<&MoveData> {
+        self.dex.move_data(name)
+    }
+
+    /// Every ability this form can have, including ones the ladder never uses.
+    pub fn abilities(&self, name: &str) -> Vec<String> {
+        self.dex
+            .entry(name)
+            .map(|e| e.abilities.clone())
+            .unwrap_or_default()
+    }
+
     /// The calc's opening state. Without names, the attacker is the most used Pokémon and
     /// the defender the next one, as on the website.
     pub fn calc_start(
@@ -416,6 +429,24 @@ impl Engine {
     }
 }
 
+#[derive(Serialize)]
+pub struct Nature {
+    pub name: &'static str,
+    /// `Adamant (+Atk −SpA)` or `Hardy (neutral)`.
+    pub label: String,
+}
+
+/// All 25 natures with their effects, alphabetically.
+pub fn natures() -> Vec<Nature> {
+    team::NATURES
+        .iter()
+        .map(|&name| Nature {
+            name,
+            label: team::nature_label(name),
+        })
+        .collect()
+}
+
 /// Checks a changed set against the Champions rules: a real nature, at most 32 points in
 /// one stat and 66 in all. Returns the problem in plain words, or nothing when it's fine.
 pub fn check_set(custom: &Custom) -> Option<String> {
@@ -468,6 +499,16 @@ impl Engine {
         self.types(name)
     }
 
+    #[wasm_bindgen(js_name = moveInfo)]
+    pub fn js_move_info(&self, name: &str) -> Result<JsValue, JsError> {
+        to_js(&self.move_info(name))
+    }
+
+    #[wasm_bindgen(js_name = abilities)]
+    pub fn js_abilities(&self, name: &str) -> Vec<String> {
+        self.abilities(name)
+    }
+
     #[wasm_bindgen(js_name = calcStart)]
     pub fn js_calc_start(
         &self,
@@ -505,6 +546,12 @@ impl Engine {
         let list: Vec<ListMon> = from_js(list)?;
         to_js(&self.import_team(format, list).map_err(js_err)?)
     }
+}
+
+/// `natures()`: all 25 natures with labels like `Adamant (+Atk −SpA)`.
+#[wasm_bindgen(js_name = natures)]
+pub fn js_natures() -> Result<JsValue, JsError> {
+    to_js(&natures())
 }
 
 /// `checkSet(custom)`: the problem with a changed set in plain words, or `undefined`.
@@ -716,6 +763,20 @@ mod tests {
         assert!(team.paste.starts_with("Incineroar @ Safety Goggles"));
         assert_eq!(team.suggestions.len(), 1);
         assert_eq!(team.suggestions[0].name, "Pelipper");
+    }
+
+    #[test]
+    fn set_editor_lookups() {
+        let engine = engine();
+        let hurricane = engine.move_info("Hurricane").unwrap();
+        assert_eq!(hurricane.move_type, "Flying");
+        assert_eq!(hurricane.category, Category::Special);
+        assert!(engine.move_info("Not A Move").is_none());
+        assert_eq!(engine.abilities("Pelipper"), ["Keen Eye", "Drizzle"]);
+        let all = natures();
+        assert_eq!(all.len(), 25);
+        assert_eq!(all[0].label, "Adamant (+Atk −SpA)");
+        assert!(all.iter().any(|n| n.label == "Hardy (neutral)"));
     }
 
     #[test]
