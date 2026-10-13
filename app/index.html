@@ -7,6 +7,11 @@
     <meta name="theme-color" content="#fff6e6" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#17122e" media="(prefers-color-scheme: dark)" />
     <title>PokeChecks</title>
+    <!-- The page colour before the stylesheet loads, so nothing flashes white. -->
+    <style>
+      html { background: #fff6e6; }
+      @media (prefers-color-scheme: dark) { html { background: #17122e; } }
+    </style>
   </head>
   <body>
     <div id="root"></div>
