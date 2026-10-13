@@ -1,4 +1,5 @@
 import { App as CapApp } from '@capacitor/app';
+import { SplashScreen } from '@capacitor/splash-screen';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { refresh, start, useData } from './data/store';
@@ -42,6 +43,18 @@ export function App() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
+
+  // Keep the native splash up until there's something to draw, then fade it out. Saved data
+  // usually loads in a moment; the timeout covers a slow first download, which has its own
+  // loading screen.
+  useEffect(() => {
+    if (status !== 'loading') {
+      void SplashScreen.hide();
+      return;
+    }
+    const timer = setTimeout(() => void SplashScreen.hide(), 2500);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   // Android's back button goes back to Usage first, then leaves the app.
   useEffect(() => {

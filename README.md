@@ -221,9 +221,15 @@ Then:
 - `npm run cap:android` builds, copies the app into `app/android` and opens Android Studio.
 - `npm run cap:ios` does the same for Xcode, on a Mac.
 
-The iOS project uses Swift Package Manager, not CocoaPods. Running `cap sync` on Windows
-writes backslash paths into `ios/App/CapApp-SPM/Package.swift`; the first sync on the Mac
-fixes them, or change them to forward slashes before committing.
+The iOS project uses Swift Package Manager, not CocoaPods. `cap sync` on Windows writes
+backslash paths into `ios/App/CapApp-SPM/Package.swift`, so `scripts/fix-spm-paths.mjs` runs
+after every sync and turns them into forward slashes.
+
+The icon and splash screens are drawn by `scripts/generate-assets.mjs`: a check mark over
+rising usage bars on a sticker tile, in the website's colours. It isn't a Poké Ball, since
+store icons are where trademark complaints start. After changing the script, run
+`npm run assets` to regenerate `app/assets/` and every Android and iOS size. The native
+splash stays up until the app has drawn its first screen, so there's no blank flash.
 
 GitHub Actions builds a debug APK on every pull request (download it from the run's
 Artifacts to install on an Android phone) and an iOS Simulator build when the app or the
