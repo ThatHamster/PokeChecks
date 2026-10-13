@@ -14,9 +14,10 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use axum::Router;
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use serde::{Deserialize, Serialize};
 use tower_http::compression::CompressionLayer;
@@ -39,8 +40,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/dex", get(dex))
         .route("/api/v1/usage/{format}", get(usage))
         .route("/api/v1/tournaments", get(tournaments))
-        .route("/api/v1/sprites/pokemon.png", get(crate::sprites))
-        .route("/api/v1/sprites/items.png", get(crate::item_sprites))
+        .route("/api/v1/sprites/pokemon.png", get(pokemon_sheet))
+        .route("/api/v1/sprites/items.png", get(item_sheet))
         .with_state(state)
         .layer(CompressionLayer::new())
         .layer(cors)
@@ -162,17 +163,43 @@ async fn tournaments(State(state): State<Arc<AppState>>, headers: HeaderMap) -> 
     }
 }
 
-/// Serializes `value` with an ETag, or answers 304 Not Modified when the app already has
-/// this exact copy. The app keeps its own copy, so `no-cache` makes every request check in.
+/// The icon sheets, with ETags like the JSON so the app downloads them only when they
+/// change. If a sheet couldn't be downloaded at startup, this points at Showdown's copy.
+async fn pokemon_sheet(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let png = state.sheets.read().await.icons.clone();
+    sheet(&headers, png, crate::dex::SHOWDOWN_ICON_SHEET)
+}
+
+async fn item_sheet(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let png = state.sheets.read().await.items.clone();
+    sheet(&headers, png, crate::dex::SHOWDOWN_ITEM_SHEET)
+}
+
+fn sheet(request: &HeaderMap, png: Option<Bytes>, fallback: &'static str) -> Response {
+    match png {
+        Some(png) => tagged(request, png, "image/png"),
+        None => Redirect::temporary(fallback).into_response(),
+    }
+}
+
 fn json(request: &HeaderMap, value: &impl Serialize) -> Response {
-    let body = match serde_json::to_vec(value) {
-        Ok(b) => b,
+    match serde_json::to_vec(value) {
+        Ok(body) => tagged(request, body, "application/json"),
         Err(err) => {
             tracing::error!("couldn't serialize API response: {err}");
-            return error(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong.");
+            error(StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong.")
         }
-    };
-    let etag = etag(&body);
+    }
+}
+
+/// Sends `body` with an ETag, or answers 304 Not Modified when the app already has this
+/// exact copy. The app keeps its own copy, so `no-cache` makes every request check in.
+fn tagged<B: AsRef<[u8]> + IntoResponse>(
+    request: &HeaderMap,
+    body: B,
+    content_type: &'static str,
+) -> Response {
+    let etag = etag(body.as_ref());
     let headers = [
         (header::ETAG, etag.clone()),
         (header::CACHE_CONTROL, HeaderValue::from_static("no-cache")),
@@ -186,10 +213,7 @@ fn json(request: &HeaderMap, value: &impl Serialize) -> Response {
     }
     (
         headers,
-        [(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/json"),
-        )],
+        [(header::CONTENT_TYPE, HeaderValue::from_static(content_type))],
         body,
     )
         .into_response()
@@ -237,6 +261,26 @@ mod tests {
         assert_eq!(json(&stale, &value).status(), StatusCode::OK);
         let changed = json(&again, &serde_json::json!({ "a": 2 }));
         assert_eq!(changed.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn sheets_get_304_too() {
+        let png = Bytes::from_static(b"not really a PNG");
+        let first = sheet(
+            &HeaderMap::new(),
+            Some(png.clone()),
+            "https://example.com/x.png",
+        );
+        assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(first.headers()[header::CONTENT_TYPE], "image/png");
+        let mut again = HeaderMap::new();
+        again.insert(header::IF_NONE_MATCH, first.headers()[header::ETAG].clone());
+        assert_eq!(
+            sheet(&again, Some(png), "https://example.com/x.png").status(),
+            StatusCode::NOT_MODIFIED
+        );
+        let missing = sheet(&HeaderMap::new(), None, "https://example.com/x.png");
+        assert_eq!(missing.status(), StatusCode::TEMPORARY_REDIRECT);
     }
 
     #[test]
