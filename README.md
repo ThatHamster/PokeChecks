@@ -181,7 +181,7 @@ works offline:
 | `GET /api/v1/tournaments` | Top teams from recent large events | about 25 KB |
 | `GET /api/v1/sprites/pokemon.png`, `/items.png` | The icon sheets | 390 KB, 90 KB |
 
-Every JSON response has an `ETag`; the app sends it back in `If-None-Match` and gets a
+Every response, the icon sheets included, has an `ETag`; the app sends it back in `If-None-Match` and gets a
 `304 Not Modified` when nothing changed. Responses are compressed (Brotli or gzip), and any
 site or app may read them (`Access-Control-Allow-Origin: *`), since they're public and
 read-only. The rest of the site still can't be read by other sites. Errors come back as
@@ -193,6 +193,42 @@ Usage percentages are kept to 4 decimal places and teammate shares to 0.01%, for
 website too. Pages show one decimal place, so nothing visible changes, but the usage file
 for VGC shrinks from 4.2 MB to 2.4 MB.
 
+## Mobile app
+
+`app/` is the PokeChecks app for Android and iOS: React and TypeScript, built with Vite
+and wrapped with Capacitor 7 (app ID `com.pokechecks.app`). It downloads the `/api/v1`
+data once, keeps it on the phone, and runs the battle logic through the WebAssembly engine,
+so it works offline. When it opens, or comes back to the foreground, it asks the server for
+anything newer using the saved ETags and downloads only what changed.
+
+So far it has the usage ladder for each format, with each Pokémon's common items,
+abilities, moves, spread and teammates, plus an About screen with the fan-app disclaimer.
+The team builder, damage calc, tournament teams and speed tiers come next.
+
+Set up once (Node 22, plus the Rust tools from "Code layout" above):
+
+```
+cd app
+npm install
+```
+
+Then:
+
+- `npm run dev` runs it in a browser at http://localhost:5190, using the live site's data.
+  To use a local server instead, put `VITE_API_BASE=http://127.0.0.1:3000` in
+  `app/.env.development.local`.
+- `npm run build` builds the WebAssembly engine and the app into `app/dist`.
+- `npm run cap:android` builds, copies the app into `app/android` and opens Android Studio.
+- `npm run cap:ios` does the same for Xcode, on a Mac.
+
+The iOS project uses Swift Package Manager, not CocoaPods. Running `cap sync` on Windows
+writes backslash paths into `ios/App/CapApp-SPM/Package.swift`; the first sync on the Mac
+fixes them, or change them to forward slashes before committing.
+
+GitHub Actions builds a debug APK on every pull request (download it from the run's
+Artifacts to install on an Android phone) and an iOS Simulator build when the app or the
+Rust crates change.
+
 ## Test
 
 ```
@@ -201,7 +237,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 GitHub Actions runs these, plus `cargo fmt --check`, the WebAssembly build (failing if the
-`.wasm` file passes 1 MB) and a Docker build of the image Render deploys, on every pull request and push to `main` (`.github/workflows/ci.yml`).
+`.wasm` file passes 1 MB), the app's typecheck and build, and a Docker build of the image Render deploys, on every pull request and push to `main` (`.github/workflows/ci.yml`).
 
 ## Load test
 

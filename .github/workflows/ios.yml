@@ -1,0 +1,70 @@
+# Builds the app for the iOS Simulator, which needs no Apple signing. macOS runners are
+# slower to start, so this only runs when the app or the logic it bundles changes. Run it by
+# hand any time from the Actions tab.
+name: iOS
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'crates/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ios.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'crates/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator-build:
+    name: Build for iOS Simulator
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@0.2.129
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build the app and copy it into the iOS project
+        working-directory: app
+        run: npm ci && npm run build && npx cap sync ios
+      - name: Build for the simulator
+        working-directory: app/ios/App
+        run: |
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Package the .app
+        run: ditto -c -k --keepParent app/ios/App/build/Build/Products/Debug-iphonesimulator/App.app PokeChecks-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pokechecks-ios-simulator
+          path: PokeChecks-simulator.zip
+          if-no-files-found: error
+          retention-days: 14

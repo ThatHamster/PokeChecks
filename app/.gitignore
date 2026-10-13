@@ -1,0 +1,7 @@
+node_modules
+dist
+# Built from crates/wasm by `npm run wasm`.
+src/wasm
+*.tsbuildinfo
+# Local settings such as VITE_API_BASE.
+*.local
