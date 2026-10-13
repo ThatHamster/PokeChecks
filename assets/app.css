@@ -532,7 +532,7 @@ label.check input { width: auto; margin: 0; accent-color: var(--accent); }
 .tie-tag { border-color: var(--down); color: var(--down); }
 
 /* Meta teams */
-.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 22px; align-items: start; }
+.tt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 22px; align-items: start; }
 .team-card { padding: 18px; display: flex; flex-direction: column; gap: 14px; transition: transform .25s var(--bounce), box-shadow .25s var(--bounce); }
 .team-card:hover { transform: translate(-2px, -3px) rotate(-.4deg); box-shadow: 8px 9px 0 var(--drop); }
 .team-card-head { display: flex; flex-direction: column; gap: 8px; }

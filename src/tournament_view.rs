@@ -410,7 +410,7 @@ fn team_list(
                 a href=(Filter::default().with(|_| {}).href(vs)) { "Clear filters" }
             }
         } @else {
-            div.team-grid {
+            div.tt-grid {
                 @for row in shown { (entry_card(row, meta, dex, vs)) }
             }
             @if matching.len() > shown.len() {
