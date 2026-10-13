@@ -789,7 +789,16 @@ async fn stylesheet() -> impl IntoResponse {
 
 /// The Pokémon icon sheet. Falls back to Showdown's copy if the download failed at startup.
 async fn sprites(State(state): State<Arc<AppState>>) -> Response {
-    match state.dex().await.icon_sheet() {
+    sheet(state.dex().await.icon_sheet(), dex::SHOWDOWN_ICON_SHEET)
+}
+
+/// The item icon sheet, with the same fallback.
+async fn item_sprites(State(state): State<Arc<AppState>>) -> Response {
+    sheet(state.dex().await.item_sheet(), dex::SHOWDOWN_ITEM_SHEET)
+}
+
+fn sheet(png: Option<axum::body::Bytes>, fallback: &'static str) -> Response {
+    match png {
         Some(png) => (
             [
                 (header::CONTENT_TYPE, "image/png"),
@@ -798,7 +807,7 @@ async fn sprites(State(state): State<Arc<AppState>>) -> Response {
             png,
         )
             .into_response(),
-        None => Redirect::temporary(dex::SHOWDOWN_ICON_SHEET).into_response(),
+        None => Redirect::temporary(fallback).into_response(),
     }
 }
 
@@ -858,6 +867,7 @@ async fn main() -> Result<()> {
         .route("/speed", get(speed_page))
         .route("/app.css", get(stylesheet))
         .route("/sprites.png", get(sprites))
+        .route("/item-sprites.png", get(item_sprites))
         .route("/fonts/{file}", get(font))
         .route("/healthz", get(health))
         .route("/theme", get(set_theme))

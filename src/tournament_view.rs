@@ -10,7 +10,10 @@ use crate::smogon::{Catalog, FormatInfo, Kind, Meta};
 use crate::team::TEAM_SIZE;
 use crate::team_view::{newcomer_note, plan_section};
 use crate::tournaments::{self, EntryTeam, Event, Tournaments};
-use crate::view::{Page, Theme, ViewState, mon_icon, shell, site_footer, site_header, type_chips};
+use crate::view::{
+    Page, Theme, ViewState, item_with_icon, mon_icon, move_with_type, shell, site_footer,
+    site_header, type_chips,
+};
 
 /// Teams per screenful; "Show more" adds another batch.
 const PAGE_SIZE: usize = 24;
@@ -455,7 +458,7 @@ fn entry_card(row: &Row, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                             span.mon-name { (mon_icon(dex, &pm.name)) span.strong { (pm.name) } }
                             (type_chips(dex.entry(&pm.name)))
                         }
-                        span.item.muted { (m.item.as_deref().unwrap_or("")) }
+                        span.item.muted { @if let Some(i) = &m.item { (item_with_icon(dex, i)) } }
                     }
                 }
             }
@@ -464,12 +467,15 @@ fn entry_card(row: &Row, meta: &Meta, dex: &Dex, vs: &ViewState) -> Markup {
                 div.list-sets {
                     @for m in &t.members {
                         div.list-set {
-                            strong { (m.name) @if let Some(i) = &m.item { " @ " (i) } }
+                            div.list-set-head {
+                                strong { (m.name) }
+                                @if let Some(i) = &m.item { span.muted { " @ " } (item_with_icon(dex, i)) }
+                            }
                             span.muted.small {
                                 (m.ability.as_deref().unwrap_or("—"))
                                 @if let Some(n) = &m.nature { " · " (n) }
                             }
-                            span.small { (m.moves.join(" / ")) }
+                            ul.moves { @for mv in &m.moves { li { (move_with_type(dex, mv)) } } }
                         }
                     }
                 }

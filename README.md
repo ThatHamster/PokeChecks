@@ -11,7 +11,8 @@ Written in Rust (edition 2024, Rust 1.99) with Axum and Maud. Pages are rendered
 server and need no JavaScript. A System / Light / Dark switch in the header lets each
 visitor pick a theme, remembered in a cookie; System follows the device setting. The look
 is playful on purpose: polka-dot paper in light mode, a starry night in dark mode, sticker
-panels, bubbly type, a CSS Poké Ball logo, and a mini sprite beside every Pokémon's name.
+panels, bubbly type, a CSS Poké Ball logo, a mini sprite beside every Pokémon's name and
+an icon beside every item, and each move tagged with its type.
 Animations switch off for visitors who prefer reduced motion.
 
 A "Support PokeChecks" button in the header (and a link in the footer) opens Ko-fi's donation
@@ -200,8 +201,8 @@ the support button like the live site, and so it can capture the donation pop-up
 - Base stats, types, and move, item and ability names: [Pokémon Showdown](https://play.pokemonshowdown.com/data/).
 - Fonts: Fredoka, Nunito and JetBrains Mono, served from `assets/fonts` under the SIL Open
   Font License (see [assets/fonts/OFL.txt](assets/fonts/OFL.txt)).
-- Pokémon mini sprites: Pokémon Showdown's icon sheet, downloaded with the Pokédex and served by
-  PokeChecks itself.
+- Pokémon and item sprites: Pokémon Showdown's icon sheets, downloaded with the Pokédex and
+  served by PokeChecks itself.
 - Tournament teams: the [Limitless public API](https://docs.limitlesstcg.com/developer.html).
 
 ## License

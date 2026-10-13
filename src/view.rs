@@ -826,8 +826,8 @@ fn card(m: &Mon, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &ViewState) ->
                 }
             }
             (share_list("Ability", &m.abilities, 2))
-            (share_list("Items", &m.items, 4))
-            (share_list("Moves (share of sets)", &m.moves, 6))
+            (share_list_with("Items", &m.items, 4, |i| item_with_icon(dex, i)))
+            (share_list_with("Moves (share of sets)", &m.moves, 6, |mv| move_with_type(dex, mv)))
             @if !m.tera.is_empty() { (share_list("Tera types", &m.tera, 3)) }
             div.kv {
                 span.label { "Common teammates" }
@@ -847,6 +847,16 @@ fn card(m: &Mon, format: &FormatInfo, meta: &Meta, dex: &Dex, vs: &ViewState) ->
 }
 
 pub(crate) fn share_list(label: &str, rows: &[Share], n: usize) -> Markup {
+    share_list_with(label, rows, n, |name| html! { (name) })
+}
+
+/// A share list whose names are drawn by `name`, e.g. with an item icon or a move's type.
+pub(crate) fn share_list_with(
+    label: &str,
+    rows: &[Share],
+    n: usize,
+    name: impl Fn(&str) -> Markup,
+) -> Markup {
     html! {
         div.kv {
             span.label { (label) }
@@ -854,12 +864,43 @@ pub(crate) fn share_list(label: &str, rows: &[Share], n: usize) -> Markup {
                 @for s in rows.iter().take(n) {
                     li {
                         span.fill style=(format!("width:{:.1}%", s.pct.min(100.0))) {}
-                        span { (s.name) }
+                        span.share-name { (name(&s.name)) }
                         span.num { (format!("{:.1}%", s.pct)) }
                     }
                 }
             }
         }
+    }
+}
+
+/// An item's icon from Showdown's item sheet, before its name. Nothing for unknown items.
+pub(crate) fn item_icon(dex: &Dex, item: &str) -> Markup {
+    match dex.item_offset(item) {
+        Some((x, y)) => html! {
+            span.item-icon aria-hidden="true" style=(format!("background-position:-{x}px -{y}px")) {}
+        },
+        None => html! {},
+    }
+}
+
+/// An item with its icon.
+pub(crate) fn item_with_icon(dex: &Dex, item: &str) -> Markup {
+    html! { span.item-name { (item_icon(dex, item)) (item) } }
+}
+
+/// A move with a small chip for its type, e.g. `Earthquake GROUND`.
+pub(crate) fn move_with_type(dex: &Dex, name: &str) -> Markup {
+    html! {
+        span.move-name { (name) }
+        @if let Some(m) = dex.move_data(name) { (type_chip(&m.move_type, true)) }
+    }
+}
+
+/// One type as a coloured chip; `mini` for the small version beside moves.
+pub(crate) fn type_chip(t: &str, mini: bool) -> Markup {
+    let ink = if is_light_type(t) { "dark" } else { "light" };
+    html! {
+        span class={ "ty ink-" (ink) @if mini { " mini" } } style=(format!("background:var(--ty-{})", t.to_lowercase())) { (t) }
     }
 }
 

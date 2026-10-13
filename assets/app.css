@@ -234,6 +234,10 @@ a.pick:hover .box { border-color: var(--accent); transform: scale(1.15); }
 .ty { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 999px; line-height: 1.3; box-shadow: inset 0 -2px 0 rgb(0 0 0 / .18); }
 .ty.ink-dark { color: var(--ty-ink-dark); }
 .ty.ink-light { color: var(--ty-ink-light); }
+.ty.mini { font-size: 8.5px; padding: 1px 6px; letter-spacing: .04em; flex: none; }
+/* Item icons from Showdown's item sheet (24×24 each), served at /item-sprites.png. */
+.item-icon { display: inline-block; flex: none; width: 24px; height: 24px; margin: -6px 3px -6px -2px; vertical-align: middle; background: url("/item-sprites.png") no-repeat; image-rendering: pixelated; }
+.item-name { white-space: nowrap; }
 .usage-cell { min-width: 130px; }
 .ubar { display: flex; align-items: center; gap: 8px; }
 .ubar .track { flex: 1; min-width: 50px; background: var(--sunk); border-radius: 999px; }
@@ -338,8 +342,17 @@ a.mate:hover { border-color: var(--accent); color: var(--accent); transform: tra
 .set dt { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 800; align-self: center; }
 .set dd { margin: 0; overflow-wrap: anywhere; }
 .set dd .small { display: block; font-family: var(--f-body); }
-.moves { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.moves li { font-size: 12.5px; font-weight: 600; background: var(--panel); border: 2px solid var(--line); border-radius: 999px; padding: 1px 8px; overflow-wrap: anywhere; }
+.moves { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr)); gap: 4px; }
+.moves li { font-size: 12.5px; font-weight: 600; background: var(--panel); border: 2px solid var(--line); border-radius: 999px; padding: 1px 4px 1px 8px; overflow-wrap: anywhere; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.moves li.empty-move { padding-right: 8px; }
+.kv li .share-name { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.kv li .share-name .ty { position: relative; margin-left: auto; }
+/* Move names stay whole; in a narrow card the type chip moves to its own line instead. */
+.move-name { white-space: nowrap; }
+.moves li { flex-wrap: wrap; }
+.moves li .ty { margin-left: auto; }
+.list-set-head { display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; }
+.list-set .moves { margin-top: 3px; }
 .slot-empty { border: 2px dashed var(--muted); border-radius: var(--r-card); display: grid; place-items: center; color: var(--muted); font-size: 13px; font-weight: 700; min-height: 120px; opacity: .8; }
 
 .matchups { font-size: 12.5px; }
@@ -544,7 +557,7 @@ label.check input { width: auto; margin: 0; accent-color: var(--accent); }
 .roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .roster li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 2px dashed var(--line); font-size: 13px; }
 .roster .mon-cell .types { padding-left: 0; }
-.roster .item { font-size: 12.5px; text-align: right; }
+.roster .item { font-size: 12.5px; text-align: right; display: flex; justify-content: flex-end; }
 .team-stats { display: flex; gap: 28px; }
 .team-stats > div { display: flex; flex-direction: column; gap: 2px; }
 .team-stats strong { font-family: var(--f-display); font-size: 28px; font-weight: 700; line-height: 1; }

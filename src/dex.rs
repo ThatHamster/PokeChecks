@@ -13,6 +13,9 @@ const SHOWDOWN_ICON_INDEXES: &str = "https://play.pokemonshowdown.com/js/battle-
 /// Showdown's mini icon sheet: 40×30 icons, 12 to a row. PokeChecks serves its own copy.
 pub const SHOWDOWN_ICON_SHEET: &str =
     "https://play.pokemonshowdown.com/sprites/pokemonicons-sheet.png";
+/// Showdown's item icon sheet: 24×24 icons, 16 to a row. PokeChecks serves its own copy.
+pub const SHOWDOWN_ITEM_SHEET: &str =
+    "https://play.pokemonshowdown.com/sprites/itemicons-sheet.png";
 
 /// Showdown's ID format: lowercase ASCII letters and digits only.
 pub fn to_id(s: &str) -> String {
@@ -93,6 +96,10 @@ pub struct Dex {
     icon_indexes: HashMap<String, u16>,
     /// The icon sheet PNG, or `None` if it couldn't be downloaded.
     icon_sheet: Option<Bytes>,
+    /// Item IDs mapped to their place on the item icon sheet.
+    item_sprites: HashMap<String, u16>,
+    /// The item icon sheet PNG, or `None` if it couldn't be downloaded.
+    item_sheet: Option<Bytes>,
 }
 
 impl Dex {
@@ -121,9 +128,10 @@ impl Dex {
         parse_js_names(&abilities, &mut names);
         // Icons are decoration, so a failed download only costs form-specific icons or a
         // locally served sheet.
-        let (indexes, sheet) = tokio::join!(
+        let (indexes, sheet, item_sheet) = tokio::join!(
             fetch_url(http, SHOWDOWN_ICON_INDEXES),
-            fetch_icon_sheet(http)
+            fetch_sheet(http, SHOWDOWN_ICON_SHEET),
+            fetch_sheet(http, SHOWDOWN_ITEM_SHEET)
         );
         let icon_indexes = match indexes {
             Ok(src) => parse_icon_indexes(&src),
@@ -135,6 +143,10 @@ impl Dex {
         let icon_sheet = sheet
             .inspect_err(|e| tracing::warn!(error = %e, "couldn't download Showdown icon sheet"))
             .ok();
+        let item_sheet = item_sheet
+            .inspect_err(|e| tracing::warn!(error = %e, "couldn't download Showdown item sheet"))
+            .ok();
+        let item_sprites = parse_item_sprites(&items);
 
         tracing::info!(
             pokemon = entries.len(),
@@ -147,6 +159,8 @@ impl Dex {
             moves: move_data,
             icon_indexes,
             icon_sheet,
+            item_sprites,
+            item_sheet,
         })
     }
 
@@ -202,6 +216,18 @@ impl Dex {
         ((index % 12) * 40, (index / 12) * 30)
     }
 
+    /// The item icon sheet served at `/item-sprites.png`, if it downloaded.
+    pub fn item_sheet(&self) -> Option<Bytes> {
+        self.item_sheet.clone()
+    }
+
+    /// Where an item's icon sits on the item icon sheet, as a CSS background offset
+    /// `(x, y)`, or `None` for an item Showdown doesn't know.
+    pub fn item_offset(&self, item: &str) -> Option<(u32, u32)> {
+        let index = u32::from(*self.item_sprites.get(&to_id(item))?);
+        Some(((index % 16) * 24, (index / 16) * 24))
+    }
+
     /// Turns a stats-file ID like `heavydutyboots` into `Heavy-Duty Boots`.
     pub fn display_name(&self, id: &str) -> String {
         self.names.get(id).cloned().unwrap_or_else(|| id.to_owned())
@@ -223,15 +249,36 @@ async fn fetch_url(http: &reqwest::Client, url: &str) -> Result<String> {
         .with_context(|| format!("reading {url}"))
 }
 
-async fn fetch_icon_sheet(http: &reqwest::Client) -> Result<Bytes> {
-    http.get(SHOWDOWN_ICON_SHEET)
+async fn fetch_sheet(http: &reqwest::Client, url: &str) -> Result<Bytes> {
+    http.get(url)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .context("downloading the icon sheet")?
+        .with_context(|| format!("downloading {url}"))?
         .bytes()
         .await
-        .context("reading the icon sheet")
+        .with_context(|| format!("reading {url}"))
+}
+
+/// Reads each item's `spritenum` from Showdown's `items.js`. Entries look like
+/// `miracleseed:{name:"Miracle Seed",fling:{basePower:30},spritenum:292,…}`, so the number
+/// is looked for anywhere between one entry's start and the next.
+fn parse_item_sprites(src: &str) -> HashMap<String, u16> {
+    let entry = Regex::new(r#"(\w+):\{name:""#).expect("valid regex");
+    let sprite = Regex::new(r"spritenum:(\d+)").expect("valid regex");
+    let starts: Vec<(usize, &str)> = entry
+        .captures_iter(src)
+        .map(|c| (c.get(0).unwrap().start(), c.get(1).unwrap().as_str()))
+        .collect();
+    starts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (start, id))| {
+            let end = starts.get(i + 1).map_or(src.len(), |(next, _)| *next);
+            let num = sprite.captures(&src[*start..end])?[1].parse().ok()?;
+            Some(((*id).to_owned(), num))
+        })
+        .collect()
 }
 
 async fn fetch_json(http: &reqwest::Client, file: &str) -> Result<Value> {
@@ -405,6 +452,16 @@ mod tests {
         parse_js_names(src, &mut names);
         assert_eq!(names["intimidate"], "Intimidate");
         assert_eq!(names["heavydutyboots"], "Heavy-Duty Boots");
+    }
+
+    #[test]
+    fn reads_item_sprite_numbers() {
+        let src = r#"exports.BattleItems = {abilityshield:{name:"Ability Shield",spritenum:746,fling:{basePower:30},num:1881},miracleseed:{name:"Miracle Seed",fling:{basePower:30},spritenum:292,num:239},raichunitey:{name:"Raichunite Y",spritenum:497,megaStone:{Raichu:"Raichu-Mega-Y"}},nosprite:{name:"No Sprite",num:1}};"#;
+        let sprites = parse_item_sprites(src);
+        assert_eq!(sprites.len(), 3);
+        assert_eq!(sprites["abilityshield"], 746);
+        assert_eq!(sprites["miracleseed"], 292, "spritenum after another field");
+        assert_eq!(sprites["raichunitey"], 497);
     }
 
     #[test]

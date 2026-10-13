@@ -12,7 +12,9 @@ use crate::team::{
     points_line,
 };
 use crate::team_view::option_list;
-use crate::view::{Page, Theme, ViewState, mon_icon, shell, site_footer, site_header, type_chips};
+use crate::view::{
+    Page, Theme, ViewState, mon_icon, shell, site_footer, site_header, type_chip, type_chips,
+};
 
 /// Calculator fields from the query string. `a_` is the attacker, `d_` the defender.
 /// `*_prev` records which Pokémon the fields belong to, so picking a new Pokémon resets
@@ -503,7 +505,7 @@ fn results(state: &CalcState, att_mon: &Mon, dex: &Dex, vs: &ViewState, doubles:
                                         @if let Some(p) = pct { span.muted.small.inline { (format!(" · {p:.0}% of sets")) } }
                                     }
                                     td {
-                                        (type_chip(&o.move_type))
+                                        (type_chip(&o.move_type, false))
                                         @if o.effectiveness != 1.0 && o.max() > 0 {
                                             span.muted.small.inline { (format!(" {}×", o.effectiveness)) }
                                         }
@@ -625,17 +627,6 @@ fn headline(state: &CalcState, o: &Outcome, mv: &MoveData, field: &Field) -> Mar
                 }
             }
         }
-    }
-}
-
-fn type_chip(t: &str) -> Markup {
-    let ink = if crate::view::is_light_type(t) {
-        "dark"
-    } else {
-        "light"
-    };
-    html! {
-        span class={ "ty ink-" (ink) } style=(format!("background:var(--ty-{})", t.to_lowercase())) { (t) }
     }
 }
 

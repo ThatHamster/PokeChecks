@@ -11,8 +11,8 @@ use crate::team::{
     STAT_LABELS, Set, TEAM_SIZE,
 };
 use crate::view::{
-    Page, Theme, ViewState, filter_form, filtered, mon_icon, month_name, shell, site_footer,
-    site_header, type_chips,
+    Page, Theme, ViewState, filter_form, filtered, item_with_icon, mon_icon, month_name,
+    move_with_type, shell, site_footer, site_header, type_chips,
 };
 
 /// A set edit that broke a rule. The page shows the message and keeps what was typed.
@@ -305,7 +305,13 @@ fn member_card(
             }
             dl.set {
                 dt { "Item" }
-                dd { (s.item.as_deref().unwrap_or("No item")) (usage_note(&m.items, s.item.as_deref())) }
+                dd {
+                    @match s.item.as_deref() {
+                        Some(item) => (item_with_icon(dex, item)),
+                        None => "No item",
+                    }
+                    (usage_note(&m.items, s.item.as_deref()))
+                }
                 dt { "Ability" }
                 dd { (s.ability.as_deref().unwrap_or("—")) (usage_note(&m.abilities, s.ability.as_deref())) }
                 @if let Some(nature) = &s.nature {
@@ -329,7 +335,7 @@ fn member_card(
                 }
             }
             ul.moves {
-                @for mv in &s.moves { li { (mv) } }
+                @for mv in &s.moves { li { (move_with_type(dex, mv)) } }
                 @for _ in s.moves.len()..MOVE_SLOTS { li.empty-move { "No move" } }
             }
             details.edit open[error.is_some()] {
