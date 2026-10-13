@@ -6,7 +6,7 @@ import { useSyncExternalStore } from 'react';
 
 import { NoDataError, fetchSaved, saved } from './cache';
 import { Engine, loadWasm } from './engine';
-import { SUPPORTED_SCHEMA, type FormatKey, type Manifest, type Usage } from './types';
+import { SUPPORTED_SCHEMA, type FormatKey, type Manifest, type Tournaments, type Usage } from './types';
 
 export interface DataState {
   /** `loading` until saved data (or a first download) is ready; `empty` if neither worked. */
@@ -16,6 +16,8 @@ export interface DataState {
   /** Usage for each format loaded so far. */
   usage: Partial<Record<FormatKey, Usage>>;
   engine: Engine | null;
+  /** Top teams from recent large events, once downloaded. */
+  tournaments: Tournaments | null;
   /** Object URLs for the Pokémon and item icon sheets. */
   sheets: { pokemon: string | null; items: string | null };
   /** When the server last confirmed the data, in ms since 1970. */
@@ -45,6 +47,7 @@ let state: DataState = {
   format: savedFormat(),
   usage: {},
   engine: null,
+  tournaments: null,
   sheets: { pokemon: null, items: null },
   checkedAt: null,
   offline: false,
@@ -117,14 +120,16 @@ async function loadSavedData() {
 
   dexJson = dex;
   usageJson[state.format] = usageText;
-  const [pokemon, items] = await Promise.all([
+  const [pokemon, items, tournaments] = await Promise.all([
     saved<Blob>('/api/v1/sprites/pokemon.png'),
     saved<Blob>('/api/v1/sprites/items.png'),
+    saved<string>('/api/v1/tournaments'),
   ]);
   update({
     manifest,
     engine: rebuildEngine(),
     usage: { [state.format]: JSON.parse(usageText) as Usage },
+    tournaments: tournaments ? (JSON.parse(tournaments) as Tournaments) : null,
     sheets: {
       pokemon: sheetUrl(pokemon, state.sheets.pokemon),
       items: sheetUrl(items, state.sheets.items),
@@ -153,8 +158,12 @@ export function refresh(): Promise<void> {
         fetchSaved<Blob>('/api/v1/sprites/pokemon.png', 'blob'),
         fetchSaved<Blob>('/api/v1/sprites/items.png', 'blob'),
       ]);
-      // Tournament teams aren't shown yet, but saving them now means they work offline later.
-      fetchSaved<string>('/api/v1/tournaments', 'text').catch(() => undefined);
+      // Tournament teams come from Limitless and can be slow; the rest doesn't wait for them.
+      fetchSaved<string>('/api/v1/tournaments', 'text')
+        .then((t) => {
+          if (t.changed || !state.tournaments) update({ tournaments: JSON.parse(t.body) as Tournaments });
+        })
+        .catch(() => undefined);
 
       if (dex.changed || !state.engine) {
         dexJson = dex.body;

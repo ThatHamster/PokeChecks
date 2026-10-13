@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { setCalc, calcFor } from '../data/calc';
 import { STAT_LABELS, TEAM_SIZE, calcStart, isMega, moveInfo, teamOf, type Custom, type SetResult } from '../data/engineTypes';
 import { setFormat, useData } from '../data/store';
-import { addMember, removeMember, setCustom, setTeam, useTeams, type SavedTeam } from '../data/teams';
+import { addMember, removeMember, setCustom, setTeam, takeBuilderNotice, useTeams, type SavedTeam } from '../data/teams';
 import type { Mon } from '../data/types';
 import { ItemIcon, MonIcon, TypeBadge, Types, monthName, pct } from './bits';
 import { MoveName } from './MoveName';
@@ -40,7 +40,7 @@ export function BuilderScreen({ onOpenCalc }: { onOpenCalc: () => void }) {
   const meta = usage[format];
   const info = manifest?.formats.find((f) => f.key === format);
   const [sheet, setSheet] = useState<Sheet>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(takeBuilderNotice);
 
   const team = useMemo(
     () => (engine && meta ? teamOf(engine, format, stored) : null),

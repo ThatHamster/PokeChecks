@@ -40,7 +40,7 @@ pub struct EntryTeam {
 }
 
 /// One Pokémon as written on an open team list.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ListMon {
     /// Limitless ID, which matches Showdown's (`indeedeef`).
     pub id: String,

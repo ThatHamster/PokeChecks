@@ -218,9 +218,14 @@ So far it has:
   bar and all 16 rolls, with every other common attack's range on its move button.
   Weather, terrain, critical hits, Helping Hand, screens and spread hits are one tap. A
   team member's "Calc" button opens it as the attacker on its exact set.
+- **Tournament teams:** the top 8 lists from the largest recent events on Limitless,
+  best finishes first, with the website's filters: required Pokémon (a species also
+  finds its Megas), archetype chips showing how many teams each leaves, and finish. Each
+  team shows "How this team plays", its full list, and "Open in builder" (stat points
+  from the most common spreads) or Share. VGC formats only, as on the website.
 - **About**, with the fan-app disclaimer.
 
-Tournament teams and speed tiers come next.
+Speed tiers come next.
 
 The styles include plain fallbacks for `color-mix()` and `dvh`, so phones with an older
 Android System WebView (before Chrome 111) still get a working layout.
