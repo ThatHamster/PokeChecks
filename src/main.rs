@@ -19,12 +19,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use axum::Router;
-use axum::extract::{Form, Path, Query, State};
+use axum::extract::{Form, FromRequestParts, Path, Query, State};
+use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, OnceCell, RwLock};
 
 use dex::Dex;
@@ -153,6 +155,42 @@ async fn refresh_dex(state: Arc<AppState>) {
     }
 }
 
+/// A query string, like axum's `Query`, but a link PokeChecks can't read (a setting given
+/// twice, say `?add=X&add=Y` from a hand-edited link) gets a friendly page instead of a
+/// plain-text error.
+struct Q<T>(T);
+
+impl<T, S> FromRequestParts<S> for Q<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Response> {
+        match Query::<T>::from_request_parts(parts, state).await {
+            Ok(Query(value)) => Ok(Q(value)),
+            Err(err) => {
+                let theme = Theme::from_cookie_header(cookie_header(&parts.headers));
+                let repeated = repeated_setting(&err.body_text());
+                // `/theme` only redirects, so it starts over at the usage page.
+                let path = match parts.uri.path() {
+                    "/theme" => "/",
+                    p => p,
+                };
+                let page = view::bad_link_page(repeated.as_deref(), path, theme);
+                Err((StatusCode::BAD_REQUEST, Html(page.into_string())).into_response())
+            }
+        }
+    }
+}
+
+/// The setting named in serde's "duplicate field `add`" error, if that's what went wrong.
+fn repeated_setting(error: &str) -> Option<String> {
+    let rest = error.split("duplicate field `").nth(1)?;
+    rest.split('`').next().map(str::to_owned)
+}
+
 /// Query string. Everything is a string so a blank or odd value falls back to a default
 /// instead of failing the whole request.
 #[derive(Deserialize, Default)]
@@ -267,7 +305,7 @@ enum Extra {
 async fn usage_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(p): Query<Params>,
+    Q(p): Q<Params>,
 ) -> Response {
     respond(&state, Page::Usage, &headers, p, Extra::None).await
 }
@@ -275,7 +313,7 @@ async fn usage_page(
 async fn builder_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(p): Query<Params>,
+    Q(p): Q<Params>,
 ) -> Response {
     respond(&state, Page::Builder, &headers, p, Extra::None).await
 }
@@ -283,7 +321,7 @@ async fn builder_page(
 async fn teams_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(p): Query<Params>,
+    Q(p): Q<Params>,
 ) -> Response {
     respond(&state, Page::Teams, &headers, p, Extra::None).await
 }
@@ -291,7 +329,7 @@ async fn teams_page(
 async fn tournaments_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(p): Query<Params>,
+    Q(p): Q<Params>,
 ) -> Response {
     respond(&state, Page::Tournaments, &headers, p, Extra::None).await
 }
@@ -299,8 +337,8 @@ async fn tournaments_page(
 async fn calc_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(p): Query<Params>,
-    Query(c): Query<calc_view::CalcParams>,
+    Q(p): Q<Params>,
+    Q(c): Q<calc_view::CalcParams>,
 ) -> Response {
     respond(&state, Page::Calc, &headers, p, Extra::Calc(Box::new(c))).await
 }
@@ -308,8 +346,8 @@ async fn calc_page(
 async fn speed_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Query(p): Query<Params>,
-    Query(s): Query<speed_view::SpeedParams>,
+    Q(p): Q<Params>,
+    Q(s): Q<speed_view::SpeedParams>,
 ) -> Response {
     respond(&state, Page::Speed, &headers, p, Extra::Speed(Box::new(s))).await
 }
@@ -341,7 +379,7 @@ struct ThemeParams {
 }
 
 /// Stores the visitor's theme in a cookie, then returns them to the page they were on.
-async fn set_theme(Query(p): Query<ThemeParams>) -> Response {
+async fn set_theme(Q(p): Q<ThemeParams>) -> Response {
     let theme = p.mode.as_deref().and_then(Theme::parse).unwrap_or_default();
     let cookie = match theme {
         // "System" is the default, so clear the cookie rather than storing it.
@@ -843,7 +881,60 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue, header};
     use axum::response::{IntoResponse, Response};
 
-    use super::{FONTS, safe_back, same_site, security_headers};
+    use super::{FONTS, Q, repeated_setting, safe_back, same_site, security_headers};
+
+    #[derive(serde::Deserialize)]
+    struct TestParams {
+        #[allow(dead_code)]
+        add: Option<String>,
+    }
+
+    /// Runs a URL through the query extractor; on failure, returns the status and page.
+    async fn extract(uri: &str) -> Result<(), (axum::http::StatusCode, String)> {
+        use axum::extract::FromRequestParts;
+        let (mut parts, ()) = axum::http::Request::builder()
+            .uri(uri)
+            .body(())
+            .unwrap()
+            .into_parts();
+        match Q::<TestParams>::from_request_parts(&mut parts, &()).await {
+            Ok(_) => Ok(()),
+            Err(res) => {
+                let status = res.status();
+                let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+                    .await
+                    .unwrap();
+                Err((status, String::from_utf8(body.to_vec()).unwrap()))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn repeated_settings_get_a_friendly_page() {
+        assert!(extract("/speed?add=Kingambit").await.is_ok());
+        let (status, page) = extract("/speed?fmt=vgc&add=Belli&add=Medic")
+            .await
+            .unwrap_err();
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(page.contains("This link doesn’t look quite right"));
+        assert!(page.contains("It sets “add” more than once"));
+        assert!(
+            page.contains(r#"href="/speed""#),
+            "start over on the same page"
+        );
+        let (_, theme_page) = extract("/theme?add=a&add=b").await.unwrap_err();
+        assert!(theme_page.contains(r#"class="go" href="/""#));
+    }
+
+    #[test]
+    fn names_the_repeated_setting() {
+        let msg = "Failed to deserialize query string: duplicate field `add`";
+        assert_eq!(repeated_setting(msg).as_deref(), Some("add"));
+        assert_eq!(
+            repeated_setting("Failed to deserialize query string: invalid type"),
+            None
+        );
+    }
 
     fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
         let mut h = HeaderMap::new();

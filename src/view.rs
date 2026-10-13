@@ -546,6 +546,36 @@ pub fn error_page(message: &str, theme: Theme) -> Markup {
     )
 }
 
+/// For a link PokeChecks can't read, such as one that gives a setting twice. `start_over`
+/// is the same page without the query string.
+pub fn bad_link_page(repeated: Option<&str>, start_over: &str, theme: Theme) -> Markup {
+    shell(
+        "Link problem",
+        theme,
+        html! {
+            header {
+                div { h1 { "Poke" span { "Checks" } } }
+                div.ladder-meta { (theme_switch(theme, "/")) }
+            }
+            section.pane.notice {
+                h2 { "This link doesn’t look quite right" }
+                p {
+                    @if let Some(name) = repeated {
+                        "It sets “" (name) "” more than once, so PokeChecks can’t tell which one you meant."
+                    } @else {
+                        "Part of it is garbled, so PokeChecks can’t read it."
+                    }
+                    " Links copied from PokeChecks always work, so this one may have been edited or cut short."
+                }
+                div.notice-actions {
+                    a.go href=(start_over) { "Start this page fresh" }
+                    a href="/" { "Go to the usage page" }
+                }
+            }
+        },
+    )
+}
+
 pub(crate) fn shell(subtitle: &str, theme: Theme, body: Markup) -> Markup {
     let data_theme = match theme {
         Theme::System => None,
