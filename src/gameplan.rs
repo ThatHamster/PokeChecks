@@ -3,7 +3,7 @@
 //! is recognised from its set, and the plan is assembled from those jobs.
 
 use crate::dex::Dex;
-use crate::team::{Set, is_mega, nature_effect};
+use crate::team::{is_mega, nature_effect};
 use crate::tournaments::ListMon;
 
 /// What the plan needs to know about one Pokémon.
@@ -22,26 +22,6 @@ pub struct PlanMon {
 }
 
 impl PlanMon {
-    pub fn from_set(s: &Set, dex: &Dex) -> Self {
-        let entry = dex.entry(&s.mon.name);
-        let base = dex.entry(dex.species(&s.mon.name));
-        let ability_on_entry = !is_mega(&s.mon.name)
-            || s.ability
-                .as_ref()
-                .is_some_and(|a| base.is_some_and(|b| b.abilities.contains(a)));
-        Self {
-            name: s.mon.name.clone(),
-            stats: entry.map_or([0; 6], |e| e.stats),
-            item: s.item.clone(),
-            ability: s.ability.clone(),
-            nature: s.nature.clone(),
-            moves: s.moves.clone(),
-            ability_on_entry,
-        }
-    }
-
-    /// Team lists name Megas by their base form, so the Mega form and its ability come
-    /// from the Pokédex.
     pub fn from_list(m: &ListMon, dex: &Dex) -> Self {
         let name = dex.battle_form(&m.id, m.item.as_deref());
         let entry = dex.entry(&name);
@@ -455,6 +435,103 @@ fn list_names(names: &[&str]) -> String {
     }
 }
 
+/// Team styles the tournament page filters by, like Pikalytics' archetype chips.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Archetype {
+    Sun,
+    Rain,
+    Sand,
+    Snow,
+    TrickRoom,
+    Tailwind,
+    PerishTrap,
+}
+
+impl Archetype {
+    pub const ALL: [Archetype; 7] = [
+        Self::Sun,
+        Self::Rain,
+        Self::Sand,
+        Self::Snow,
+        Self::TrickRoom,
+        Self::Tailwind,
+        Self::PerishTrap,
+    ];
+
+    /// The value used in links, e.g. `trick-room`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Sun => "sun",
+            Self::Rain => "rain",
+            Self::Sand => "sand",
+            Self::Snow => "snow",
+            Self::TrickRoom => "trick-room",
+            Self::Tailwind => "tailwind",
+            Self::PerishTrap => "perish-trap",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Sun => "Sun",
+            Self::Rain => "Rain",
+            Self::Sand => "Sand",
+            Self::Snow => "Snow",
+            Self::TrickRoom => "Trick Room",
+            Self::Tailwind => "Tailwind",
+            Self::PerishTrap => "Perish Trap",
+        }
+    }
+
+    pub fn parse(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.key() == key)
+    }
+}
+
+/// Which archetypes a team fits. Weather counts when someone sets it, by ability (as it
+/// battles, so Mega abilities count) or by move; Trick Room and Tailwind when someone runs
+/// the move; Perish Trap when the team has Perish Song and a way to keep foes in.
+pub fn archetypes(team: &[PlanMon]) -> Vec<Archetype> {
+    let any = |abilities: &[&str], moves: &[&str]| {
+        team.iter()
+            .any(|m| m.ability_is(abilities) || m.has_move(moves).is_some())
+    };
+    let checks = [
+        (
+            Archetype::Sun,
+            any(&["Drought", "Orichalcum Pulse"], &["Sunny Day"]),
+        ),
+        (Archetype::Rain, any(&["Drizzle"], &["Rain Dance"])),
+        (Archetype::Sand, any(&["Sand Stream"], &["Sandstorm"])),
+        (
+            Archetype::Snow,
+            any(&["Snow Warning"], &["Snowscape", "Chilly Reception"]),
+        ),
+        (Archetype::TrickRoom, any(&[], &["Trick Room"])),
+        (Archetype::Tailwind, any(&[], &["Tailwind"])),
+        (
+            Archetype::PerishTrap,
+            any(&[], &["Perish Song"])
+                && any(
+                    &["Shadow Tag", "Arena Trap"],
+                    &[
+                        "Mean Look",
+                        "Block",
+                        "Spirit Shackle",
+                        "Anchor Shot",
+                        "Jaw Lock",
+                        "Fairy Lock",
+                    ],
+                ),
+        ),
+    ];
+    checks
+        .into_iter()
+        .filter(|(_, fits)| *fits)
+        .map(|(a, _)| a)
+        .collect()
+}
+
 /// Builds the plan. `doubles` is true for VGC (bring 4) and false for Battle Stadium
 /// Singles (bring 3).
 pub fn plan(team: &[PlanMon], doubles: bool) -> GamePlan {
@@ -673,6 +750,40 @@ pub fn plan(team: &[PlanMon], doubles: bool) -> GamePlan {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_archetypes() {
+        assert_eq!(
+            archetypes(&rain_team()),
+            vec![Archetype::Rain, Archetype::Tailwind]
+        );
+        let perish = vec![
+            mon(
+                "Gengar-Mega",
+                "Shadow Tag",
+                "Gengarite",
+                &["Perish Song", "Protect"],
+                [60; 6],
+            ),
+            mon("Torkoal", "Drought", "Charcoal", &["Eruption"], [70; 6]),
+        ];
+        assert_eq!(
+            archetypes(&perish),
+            vec![Archetype::Sun, Archetype::PerishTrap]
+        );
+        // Perish Song alone, with nothing to trap, isn't Perish Trap.
+        let song_only = vec![mon(
+            "Politoed",
+            "Drizzle",
+            "Leftovers",
+            &["Perish Song"],
+            [90; 6],
+        )];
+        assert_eq!(archetypes(&song_only), vec![Archetype::Rain]);
+        for a in Archetype::ALL {
+            assert_eq!(Archetype::parse(a.key()), Some(a));
+        }
+    }
 
     fn mon(name: &str, ability: &str, item: &str, moves: &[&str], stats: [u16; 6]) -> PlanMon {
         PlanMon {

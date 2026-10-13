@@ -206,12 +206,10 @@ def take_all(dt, out):
         go(dt, href)
     shot(dt, out, "speed-tiers.png", 1300)
 
-    # Meta teams, with the rain team's game plan open.
-    go(dt, f"{BASE}/teams?fmt=vgc&cut=1630")
-    dt.js("""[...document.querySelectorAll('.team-card')]
-        .find(c => c.querySelector('h3').textContent.includes('Archaludon'))
-        .querySelector('details.plan').open = true""")
-    shot(dt, out, "game-plan.png", 1640)
+    # Tournament teams filtered to rain, with the first team's game plan open.
+    go(dt, f"{BASE}/tournaments?fmt=vgc&cut=1630&arch=rain")
+    dt.js("document.querySelector('.team-card details.plan').open = true")
+    shot(dt, out, "tournament-teams.png", 1700)
 
     # The Ko-fi donation pop-up, when the server has a Ko-fi SUPPORT_URL.
     go(dt, f"{BASE}/?fmt=vgc&cut=1630")

@@ -19,12 +19,12 @@ form in a small pop-up, so visitors can donate without leaving the page. It uses
 browser's built-in popover, still with no JavaScript, and Ko-fi isn't contacted until someone
 opens it.
 
-Every meta team and tournament team has a "How this team plays" section for newer players:
+Every tournament team has a "How this team plays" section for newer players:
 a short starting plan (the team's main idea, a simple lead, which Pokémon to Mega Evolve,
 who does the damage) and what each Pokémon is there to do. It's worked out from the team's
 own moves, abilities and items, so it stays accurate as the teams change.
 
-![The meta teams page with the Archaludon + Pelipper rain team's game plan open, showing its five-step plan and each Pokémon's role](docs/game-plan.png)
+![The tournament teams page filtered to rain teams: the filter panel with the Rain chip on, then the top rain teams with the first one's game plan open](docs/tournament-teams.png)
 
 The pages share one URL, so links keep the format, comparison and team:
 
@@ -36,9 +36,6 @@ The pages share one URL, so links keep the format, comparison and team:
   away, and custom stat points are checked against the Champions limits (32 per stat, 66
   total). The page shows level 50 stats, type matchups (counting abilities like Levitate),
   Speed order, teammate suggestions, and a Showdown / Poképaste export.
-- **Meta teams:** teams assembled from teammate statistics. Each starts from a popular
-  Pokémon and adds whichever Pokémon most often appear alongside the ones already picked,
-  without mixing weathers or terrains. They show common cores, not specific players' teams.
 - **Damage calc:** level 50 damage between any two Pokémon in the format, using Champions
   stats and Pokémon Showdown's Gen 9 damage formula and rounding. Both sides start on their
   most common set; items, abilities, natures, stat points, stat stages, weather, terrain,
@@ -54,10 +51,16 @@ The pages share one URL, so links keep the format, comparison and team:
 - **Saved teams:** the team builder can save up to 12 teams, kept in your browser as
   cookies (no account, nothing stored on the server), and open them later or on the
   Speed tiers page.
-- **Tournament teams:** top 4 open team lists from the largest recent events for the current
-  regulation on [Limitless](https://play.limitlesstcg.com/tournaments?game=VGC), refreshed
-  every three hours. Any team opens in the builder; team lists have no stat points, so the
-  builder fills them in from the most common spread for each Pokémon and nature.
+- **Tournament teams:** the top 8 open team lists from the 30 largest recent events
+  (32 or more players, roughly the last three weeks) for the current regulation on
+  [Limitless](https://play.limitlesstcg.com/tournaments?game=VGC), up to 240 teams, best
+  finishes first. Filters work like Pikalytics': require one or more Pokémon (a species such
+  as Charizard also finds its Megas), pick archetypes (Sun, Rain, Sand, Snow, Trick Room,
+  Tailwind, Perish Trap, each showing how many teams it would leave), or a finish (winners,
+  top 4, top 8). Filters are part of the link, so a filtered list can be shared. Any team
+  opens in the builder; team lists have no stat points, so the builder fills them in from
+  the most common spread for each Pokémon and nature. Old `/teams` links (the meta teams
+  page this replaced) redirect here.
 
 The header says which month's stats you're looking at, such as "Stats from September 2026":
 the month the battles were played. Smogon publishes each month's stats in the first days of
@@ -129,7 +132,8 @@ While the server runs, it refreshes everything itself:
 - **Usage stats:** checks Smogon every 6 hours. Smogon publishes each month's stats in the
   first days of the next month; earlier months are dropped from memory when a new one
   appears.
-- **Tournament teams:** checks Limitless every 3 hours. The regulation comes from
+- **Tournament teams:** loads when the server starts, then checks Limitless every 3 hours,
+  downloading at most 4 events' standings at a time. The regulation comes from
   Limitless's own format list, so a new regulation's events show up as soon as they're
   played instead of waiting a month for Smogon.
 - **Pokédex and sprites:** reloads Showdown's data and icon sheet every 24 hours (retrying

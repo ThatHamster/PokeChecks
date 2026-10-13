@@ -3,9 +3,9 @@
 use maud::{Markup, html};
 
 use crate::dex::Dex;
-use crate::gameplan::{self, GamePlan, PlanMon};
+use crate::gameplan::GamePlan;
 use crate::saved::SavedTeam;
-use crate::smogon::{Catalog, FormatInfo, Kind, Meta, Mon, Share};
+use crate::smogon::{Catalog, FormatInfo, Meta, Mon, Share};
 use crate::team::{
     self, Blocked, Custom, MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, MOVE_SLOTS, Member, NATURES,
     STAT_LABELS, Set, TEAM_SIZE,
@@ -244,7 +244,7 @@ fn team_panel(
                 div.empty {
                     strong { "Your team is empty" }
                     "Add Pokémon from the list, or "
-                    a href=(vs.on_page(Page::Teams).href()) { "start from a meta team" }
+                    a href=(vs.on_page(Page::Tournaments).href()) { "start from a tournament team" }
                     "."
                 }
             } @else {
@@ -554,42 +554,6 @@ fn speed_list(sets: &[Set], dex: &Dex) -> Markup {
     }
 }
 
-pub fn teams_page(
-    catalog: &Catalog,
-    format: &FormatInfo,
-    meta: &Meta,
-    dex: &Dex,
-    vs: &ViewState,
-    theme: Theme,
-) -> Markup {
-    let teams = team::meta_teams(meta, dex);
-    let dek = html! {
-        "Teams assembled from "
-        strong { (month_name(&catalog.month)) " " (format.kind.label()) " Regulation " (format.regulation) }
-        " ladder data. Each starts from a popular Pokémon and adds whichever Pokémon most often appear alongside the ones already picked. They show common cores, not specific players’ teams."
-    };
-
-    shell(
-        "Meta teams",
-        theme,
-        html! {
-            (site_header(catalog, format, meta, vs, theme, dek))
-            @if teams.is_empty() {
-                section.pane.empty {
-                    strong { "Not enough data for suggested teams" }
-                    "This format doesn’t have enough teammate data at the " (meta.cutoff) "+ cutoff. Try a lower rating cutoff."
-                }
-            } @else {
-                (newcomer_note())
-                div.meta-teams {
-                    @for t in &teams { (meta_team_card(t, dex, vs, format.kind != Kind::Bss)) }
-                }
-            }
-            (site_footer(catalog))
-        },
-    )
-}
-
 /// Sets expectations for the game plans on the meta and tournament team pages.
 pub(crate) fn newcomer_note() -> Markup {
     html! {
@@ -625,61 +589,6 @@ pub(crate) fn plan_section(plan: &GamePlan, dex: &Dex) -> Markup {
                             }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-fn meta_team_card(t: &team::MetaTeam, dex: &Dex, vs: &ViewState, doubles: bool) -> Markup {
-    let sets = team::common_sets(&t.members);
-    let plan_mons: Vec<PlanMon> = sets.iter().map(|s| PlanMon::from_set(s, dex)).collect();
-    let plan = gameplan::plan(&plan_mons, doubles);
-    let names: Vec<Member> = t.members.iter().map(|m| Member::new(&m.name)).collect();
-    // Named after the Pokémon the team was built from and the first partner it picked.
-    let title = format!("{} + {}", t.members[0].name, t.members[1].name);
-    let megas = t.members.iter().filter(|m| team::is_mega(&m.name)).count();
-    let avg_usage = t.members.iter().map(|m| m.usage).sum::<f64>() / t.members.len() as f64;
-
-    html! {
-        article.pane.team-card {
-            div.team-card-head {
-                h3 { (title) }
-                @if !t.tags.is_empty() {
-                    div.tags { @for tag in &t.tags { span.tag { (tag) } } }
-                }
-            }
-            ul.roster {
-                @for s in &sets {
-                    li {
-                        div.mon-cell {
-                            span.mon-name { (mon_icon(dex, &s.mon.name)) span.strong { (s.mon.name) } }
-                            (type_chips(dex.entry(&s.mon.name)))
-                        }
-                        span.item.muted { (s.item.as_deref().unwrap_or("")) }
-                        span.num.muted { (format!("{:.1}%", s.mon.usage)) }
-                    }
-                }
-            }
-            @if megas > 1 {
-                p.note { "Carries " (megas) " Megas. Only one can Mega Evolve per battle, so pick which one to bring." }
-            }
-            div.team-stats {
-                div title="On average, the share of each member’s teams that include each other member" {
-                    span.label { "Played together" }
-                    strong.num { (format!("{:.0}%", t.cohesion * 100.0)) }
-                }
-                div {
-                    span.label { "Average usage" }
-                    strong.num { (format!("{:.1}%", avg_usage)) }
-                }
-            }
-            (plan_section(&plan, dex))
-            div.team-actions {
-                a.go href=(vs.with_team(names).on_page(Page::Builder).href()) { "Open in team builder" }
-                details {
-                    summary { "Showdown export" }
-                    textarea.paste readonly rows="14" aria-label="Team in Showdown format" { (team::showdown_paste(&sets, dex)) }
                 }
             }
         }

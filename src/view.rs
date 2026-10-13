@@ -72,17 +72,15 @@ impl SortKey {
 pub enum Page {
     Usage,
     Builder,
-    Teams,
     Tournaments,
     Calc,
     Speed,
 }
 
 impl Page {
-    const ALL: [Page; 6] = [
+    const ALL: [Page; 5] = [
         Page::Usage,
         Page::Builder,
-        Page::Teams,
         Page::Tournaments,
         Page::Calc,
         Page::Speed,
@@ -92,7 +90,6 @@ impl Page {
         match self {
             Self::Usage => "/",
             Self::Builder => "/builder",
-            Self::Teams => "/teams",
             Self::Tournaments => "/tournaments",
             Self::Calc => "/calc",
             Self::Speed => "/speed",
@@ -103,7 +100,6 @@ impl Page {
         match self {
             Self::Usage => "Usage",
             Self::Builder => "Team builder",
-            Self::Teams => "Meta teams",
             Self::Tournaments => "Tournament teams",
             Self::Calc => "Damage calc",
             Self::Speed => "Speed tiers",
@@ -127,7 +123,16 @@ pub struct ViewState {
 
 impl ViewState {
     pub(crate) fn href(&self) -> String {
-        let mut pairs: Vec<(&str, String)> = vec![
+        format!(
+            "{}?{}",
+            self.page.path(),
+            serde_urlencoded::to_string(self.query_pairs()).unwrap_or_default()
+        )
+    }
+
+    /// The state as query string pairs, e.g. for a form's hidden fields.
+    pub(crate) fn query_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut pairs: Vec<(&'static str, String)> = vec![
             ("fmt", self.fmt.clone()),
             ("cut", self.cut.to_string()),
             ("sort", self.sort.as_str().to_owned()),
@@ -143,11 +148,7 @@ impl ViewState {
         if !self.team.is_empty() {
             pairs.push(("team", self.team_param()));
         }
-        format!(
-            "{}?{}",
-            self.page.path(),
-            serde_urlencoded::to_string(pairs).unwrap_or_default()
-        )
+        pairs
     }
 
     pub(crate) fn on_page(&self, page: Page) -> Self {

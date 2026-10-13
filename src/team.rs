@@ -6,15 +6,6 @@ use crate::dex::Dex;
 use crate::smogon::{Meta, Mon};
 
 pub const TEAM_SIZE: usize = 6;
-/// Generated teams carry at most this many Mega Evolutions. Only one can Mega Evolve in a
-/// battle, so more than two is rarely worth a slot.
-const MAX_MEGAS: usize = 2;
-/// How many suggested teams the meta teams page shows.
-const MAX_META_TEAMS: usize = 6;
-/// Generated teams may share at most this many members, so the list stays varied.
-const MAX_SHARED_MEMBERS: usize = 3;
-/// A move or ability needs at least this share of a Pokémon's sets to tag its team.
-const TAG_THRESHOLD: f64 = 40.0;
 
 pub const TYPES: [&str; 18] = [
     "Normal", "Fire", "Water", "Electric", "Grass", "Ice", "Fighting", "Poison", "Ground",
@@ -432,12 +423,6 @@ pub fn resolve_sets<'a>(members: &[(&'a Mon, Option<&Custom>)]) -> Vec<Set<'a>> 
         .collect()
 }
 
-/// Most common sets for a whole team.
-pub fn common_sets<'a>(team: &[&'a Mon]) -> Vec<Set<'a>> {
-    let members: Vec<(&Mon, Option<&Custom>)> = team.iter().map(|m| (*m, None)).collect();
-    resolve_sets(&members)
-}
-
 /// Items held by more than one member, which the item clause doesn't allow.
 pub fn repeated_items(sets: &[Set]) -> Vec<String> {
     let mut seen: Vec<&str> = Vec::new();
@@ -604,134 +589,6 @@ pub fn suggestions<'a>(team: &[&Mon], meta: &'a Meta, dex: &Dex, n: usize) -> Ve
     out
 }
 
-/// A team assembled from teammate statistics.
-pub struct MetaTeam<'a> {
-    pub members: Vec<&'a Mon>,
-    /// Average share of each member's teams that include each other member.
-    pub cohesion: f64,
-    pub tags: Vec<&'static str>,
-}
-
-/// Starts from each popular Pokémon in turn and greedily adds whichever Pokémon appears most
-/// often alongside the members chosen so far. Near-duplicates of earlier teams are skipped.
-pub fn meta_teams<'a>(meta: &'a Meta, dex: &Dex) -> Vec<MetaTeam<'a>> {
-    let mut teams: Vec<MetaTeam> = Vec::new();
-    for seed in meta.mons.iter().take(30) {
-        let mut members: Vec<&Mon> = vec![seed];
-        while members.len() < TEAM_SIZE {
-            let megas = members.iter().filter(|m| is_mega(&m.name)).count();
-            let next = meta
-                .mons
-                .iter()
-                .filter(|c| blocked(&members, &c.name, dex).is_none())
-                .filter(|c| megas < MAX_MEGAS || !is_mega(&c.name))
-                .filter(|c| field_compatible(&members, c))
-                .map(|c| (c, pair_score(&members, &c.name)))
-                .filter(|(_, score)| *score > 0.0)
-                .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.rank.cmp(&a.0.rank)));
-            match next {
-                Some((c, _)) => members.push(c),
-                None => break,
-            }
-        }
-        let too_similar = teams.iter().any(|t| {
-            members
-                .iter()
-                .filter(|m| t.members.iter().any(|x| x.name == m.name))
-                .count()
-                > MAX_SHARED_MEMBERS
-        });
-        if members.len() == TEAM_SIZE && !too_similar {
-            let sets = common_sets(&members);
-            teams.push(MetaTeam {
-                cohesion: cohesion(&members),
-                tags: tags(&sets),
-                members,
-            });
-            if teams.len() == MAX_META_TEAMS {
-                break;
-            }
-        }
-    }
-    teams
-}
-
-fn cohesion(members: &[&Mon]) -> f64 {
-    let mut total = 0.0;
-    let mut pairs = 0;
-    for a in members {
-        for b in members {
-            if a.name != b.name {
-                total += a.pair_rates.get(&b.name).copied().unwrap_or(0.0);
-                pairs += 1;
-            }
-        }
-    }
-    if pairs == 0 {
-        0.0
-    } else {
-        total / pairs as f64
-    }
-}
-
-/// Weather or terrain a Pokémon sets automatically with its usual ability.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FieldEffect {
-    pub is_weather: bool,
-    pub name: &'static str,
-}
-
-pub fn field_effect(m: &Mon) -> Option<FieldEffect> {
-    let ability = m.abilities.first().filter(|a| a.pct >= TAG_THRESHOLD)?;
-    let (is_weather, name) = match ability.name.as_str() {
-        "Drought" | "Orichalcum Pulse" => (true, "Sun"),
-        "Drizzle" => (true, "Rain"),
-        "Sand Stream" => (true, "Sand"),
-        "Snow Warning" => (true, "Snow"),
-        "Grassy Surge" => (false, "Grassy Terrain"),
-        "Psychic Surge" => (false, "Psychic Terrain"),
-        "Electric Surge" | "Hadron Engine" => (false, "Electric Terrain"),
-        "Misty Surge" => (false, "Misty Terrain"),
-        _ => return None,
-    };
-    Some(FieldEffect { is_weather, name })
-}
-
-/// False when `candidate` would set a different weather (or terrain) than a member already
-/// does; the two would overwrite each other.
-fn field_compatible(members: &[&Mon], candidate: &Mon) -> bool {
-    let Some(new) = field_effect(candidate) else {
-        return true;
-    };
-    members
-        .iter()
-        .filter_map(|m| field_effect(m))
-        .all(|old| old.is_weather != new.is_weather || old.name == new.name)
-}
-
-/// Weather, terrain and speed control the team's common sets set up.
-pub fn tags(sets: &[Set]) -> Vec<&'static str> {
-    let mut out = Vec::new();
-    let mut add = |t: &'static str| {
-        if !out.contains(&t) {
-            out.push(t);
-        }
-    };
-    for s in sets {
-        if let Some(field) = field_effect(s.mon) {
-            add(field.name);
-        }
-        for m in s.mon.moves.iter().filter(|m| m.pct >= TAG_THRESHOLD) {
-            match m.name.as_str() {
-                "Trick Room" => add("Trick Room"),
-                "Tailwind" => add("Tailwind"),
-                _ => {}
-            }
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -821,26 +678,6 @@ mod tests {
                 .map(|(n, r)| ((*n).to_owned(), *r))
                 .collect::<HashMap<_, _>>(),
         }
-    }
-
-    #[test]
-    fn rejects_a_second_different_weather() {
-        let with_ability = |name: &str, ability: &str| {
-            let mut m = mon(name, 1, &[], &[]);
-            m.abilities = vec![Share {
-                name: ability.into(),
-                pct: 99.0,
-            }];
-            m
-        };
-        let pelipper = with_ability("Pelipper", "Drizzle");
-        let charizard = with_ability("Charizard-Mega-Y", "Drought");
-        let politoed = with_ability("Politoed", "Drizzle");
-        let rillaboom = with_ability("Rillaboom", "Grassy Surge");
-        assert!(!field_compatible(&[&pelipper], &charizard));
-        assert!(field_compatible(&[&pelipper], &politoed));
-        // Terrain and weather don't clash.
-        assert!(field_compatible(&[&pelipper], &rillaboom));
     }
 
     fn custom() -> Custom {
@@ -934,7 +771,7 @@ mod tests {
     fn sets_follow_the_item_clause() {
         let a = mon("A", 1, &["Sitrus Berry", "Leftovers"], &[]);
         let b = mon("B", 2, &["Sitrus Berry", "Focus Sash"], &[]);
-        let sets = common_sets(&[&a, &b]);
+        let sets = resolve_sets(&[(&a, None), (&b, None)]);
         assert_eq!(sets[0].item.as_deref(), Some("Sitrus Berry"));
         assert_eq!(sets[1].item.as_deref(), Some("Focus Sash"));
     }

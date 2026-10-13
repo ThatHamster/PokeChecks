@@ -300,6 +300,7 @@ enum Extra {
     None,
     Calc(Box<calc_view::CalcParams>),
     Speed(Box<speed_view::SpeedParams>),
+    Tournaments(Box<tournament_view::FilterParams>),
 }
 
 async fn usage_page(
@@ -318,20 +319,22 @@ async fn builder_page(
     respond(&state, Page::Builder, &headers, p, Extra::None).await
 }
 
-async fn teams_page(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Q(p): Q<Params>,
-) -> Response {
-    respond(&state, Page::Teams, &headers, p, Extra::None).await
+/// The meta teams page was replaced by filterable tournament teams; old links go there.
+async fn teams_moved(uri: axum::http::Uri) -> Redirect {
+    match uri.query() {
+        Some(q) => Redirect::permanent(&format!("/tournaments?{q}")),
+        None => Redirect::permanent("/tournaments"),
+    }
 }
 
 async fn tournaments_page(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Q(p): Q<Params>,
+    Q(f): Q<tournament_view::FilterParams>,
 ) -> Response {
-    respond(&state, Page::Tournaments, &headers, p, Extra::None).await
+    let extra = Extra::Tournaments(Box::new(f));
+    respond(&state, Page::Tournaments, &headers, p, extra).await
 }
 
 async fn calc_page(
@@ -702,8 +705,11 @@ async fn render(
             saved,
             p.msg.as_deref(),
         ),
-        Page::Teams => team_view::teams_page(&catalog, format, &meta, dex, &vs, theme),
         Page::Tournaments => {
+            let filters = match extra {
+                Extra::Tournaments(f) => *f,
+                _ => tournament_view::FilterParams::default(),
+            };
             let loaded;
             let source = if format.kind == smogon::Kind::Bss {
                 tournament_view::Source::SinglesFormat
@@ -711,7 +717,7 @@ async fn render(
                 match state.tournaments(&format.regulation).await {
                     Ok(t) => {
                         loaded = t;
-                        tournament_view::Source::Events(&loaded)
+                        tournament_view::Source::Events(&loaded, &filters)
                     }
                     Err(err) => {
                         tracing::warn!("tournament teams unavailable: {err:#}");
@@ -835,12 +841,18 @@ async fn main() -> Result<()> {
         if let Err(err) = result {
             tracing::warn!("could not preload usage stats: {err:#}");
         }
+        // Tournament teams take a few seconds to gather from Limitless.
+        if let Ok(catalog) = warm.catalog().await
+            && let Err(err) = warm.tournaments(&catalog.format(None).regulation).await
+        {
+            tracing::warn!("could not preload tournament teams: {err:#}");
+        }
     });
 
     let app = Router::new()
         .route("/", get(usage_page))
         .route("/builder", get(builder_page))
-        .route("/teams", get(teams_page))
+        .route("/teams", get(teams_moved))
         .route("/tournaments", get(tournaments_page))
         .route("/calc", get(calc_page))
         .route("/speed", get(speed_page))

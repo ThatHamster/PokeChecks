@@ -395,13 +395,25 @@ details.edit[open] > summary { margin-bottom: 10px; }
 
 /* Tournament teams */
 .page-note { margin-top: -6px; }
-.event { display: flex; flex-direction: column; gap: 12px; }
-.event .meta-teams { grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); }
-.event-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; border-bottom: 3px dotted var(--line); padding-bottom: 8px; }
-.event-head h2 { font-size: 24px; }
-.event-head h2::before { content: "🏆 "; font-size: .85em; }
-.event-head p { margin: 0; font-size: 13px; }
-.event-head a { color: var(--accent); font-weight: 700; }
+/* Tournament team filters, after Pikalytics': required Pokémon, archetype chips, finish. */
+.tt-filter-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
+.tt-add { display: flex; flex-direction: column; gap: 6px; max-width: 520px; }
+.tt-add label { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 800; }
+.tt-add input[type="text"] { flex: 1; min-width: 0; font-size: 15px; background: var(--panel); border: 2px solid var(--line); border-radius: 999px; padding: 7px 14px; }
+.tt-add input[type="text"]:focus { border-color: var(--accent); }
+.tt-filter-body .chips-sel .mon-icon { margin: -9px -4px -8px -8px; }
+.tt-row { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px 12px; align-items: center; }
+@media (max-width: 520px) { .tt-row { grid-template-columns: minmax(0, 1fr); } }
+.tt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tt-chips .count { font-family: var(--f-data); font-size: 11px; font-weight: 600; opacity: .7; margin-left: 2px; }
+.toggle.off { opacity: .45; cursor: default; }
+.toggle.off:hover { border-color: var(--line); transform: none; }
+.clear-filters { align-self: flex-start; font-size: 13px; font-weight: 800; color: var(--accent); }
+.show-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; justify-content: center; }
+.show-more .go { text-decoration: none; }
+.event-line { margin: 0; }
+.event-line a { color: var(--accent); font-weight: 700; }
+.placing-row .record { margin-left: auto; }
 .placing-row { display: flex; align-items: baseline; gap: 10px; }
 .placing { font-family: var(--f-display); font-weight: 700; font-size: 20px; color: var(--muted); }
 .placing.first { color: var(--on-pop); background: var(--pop); border: 2px solid var(--edge); border-radius: 999px; padding: 0 10px; transform: rotate(-3deg); box-shadow: 2px 2px 0 var(--drop); }
@@ -520,7 +532,7 @@ label.check input { width: auto; margin: 0; accent-color: var(--accent); }
 .tie-tag { border-color: var(--down); color: var(--down); }
 
 /* Meta teams */
-.meta-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 22px; align-items: start; }
+.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 22px; align-items: start; }
 .team-card { padding: 18px; display: flex; flex-direction: column; gap: 14px; transition: transform .25s var(--bounce), box-shadow .25s var(--bounce); }
 .team-card:hover { transform: translate(-2px, -3px) rotate(-.4deg); box-shadow: 8px 9px 0 var(--drop); }
 .team-card-head { display: flex; flex-direction: column; gap: 8px; }
@@ -530,10 +542,9 @@ label.check input { width: auto; margin: 0; accent-color: var(--accent); }
 .tags .tag:nth-child(3n+2) { border-color: var(--pink); color: var(--s3); }
 .tags .tag:nth-child(3n+3) { border-color: var(--s4); color: var(--s4); }
 .roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.roster li { display: grid; grid-template-columns: minmax(0, 1fr) auto 3.6em; gap: 10px; align-items: center; padding: 7px 0; border-top: 2px dashed var(--line); font-size: 13px; }
+.roster li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 2px dashed var(--line); font-size: 13px; }
 .roster .mon-cell .types { padding-left: 0; }
 .roster .item { font-size: 12.5px; text-align: right; }
-.roster .num { text-align: right; font-size: 12px; }
 .team-stats { display: flex; gap: 28px; }
 .team-stats > div { display: flex; flex-direction: column; gap: 2px; }
 .team-stats strong { font-family: var(--f-display); font-size: 28px; font-weight: 700; line-height: 1; }

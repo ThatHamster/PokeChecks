@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 use crate::dex::Dex;
@@ -12,13 +13,16 @@ use crate::smogon::Meta;
 use crate::team::{Custom, Member};
 
 const API: &str = "https://play.limitlesstcg.com/api";
-/// How many recent events to look through for large ones.
-const RECENT_EVENTS: usize = 100;
-/// How many of the largest recent events to show.
-const EVENTS_SHOWN: usize = 8;
-/// Smaller events are skipped; a top 4 out of a handful of players says little.
+/// Limitless lists events 100 to a page, newest first; two pages cover about three weeks.
+const PAGE_SIZE: usize = 100;
+const PAGES: usize = 2;
+/// How many of the largest recent events to use. With their top 8 that's up to 240 teams.
+const EVENTS_USED: usize = 30;
+/// Smaller events are skipped; a top 8 out of a handful of players says little.
 const MIN_PLAYERS: u32 = 32;
-const TOP_PLACINGS: u32 = 4;
+const TOP_PLACINGS: u32 = 8;
+/// Standings downloaded at once, to go easy on Limitless.
+const CONCURRENT_DOWNLOADS: usize = 4;
 
 pub struct Event {
     pub id: String,
@@ -177,29 +181,42 @@ fn newest_regulations(formats: Vec<String>) -> Vec<String> {
 
 /// Top teams from the largest recent events for a regulation, newest event first.
 pub async fn load(http: &reqwest::Client, regulation: &str) -> Result<Vec<Event>> {
-    let query = serde_urlencoded::to_string([
-        ("game", "VGC"),
-        ("format", regulation),
-        ("limit", &RECENT_EVENTS.to_string()),
-    ])?;
-    let url = format!("{API}/tournaments?{query}");
-    let mut events: Vec<LTournament> = http
-        .get(&url)
-        .send()
-        .await
-        .and_then(reqwest::Response::error_for_status)
-        .with_context(|| format!("downloading {url}"))?
-        .json()
-        .await
-        .with_context(|| format!("parsing {url}"))?;
+    let mut events: Vec<LTournament> = Vec::new();
+    for page in 1..=PAGES {
+        let query = serde_urlencoded::to_string([
+            ("game", "VGC"),
+            ("format", regulation),
+            ("limit", &PAGE_SIZE.to_string()),
+            ("page", &page.to_string()),
+        ])?;
+        let url = format!("{API}/tournaments?{query}");
+        let batch: Vec<LTournament> = http
+            .get(&url)
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .with_context(|| format!("downloading {url}"))?
+            .json()
+            .await
+            .with_context(|| format!("parsing {url}"))?;
+        let last_page = batch.len() < PAGE_SIZE;
+        events.extend(batch);
+        if last_page {
+            break;
+        }
+    }
     events.retain(|e| e.players >= MIN_PLAYERS);
     events.sort_by_key(|e| std::cmp::Reverse(e.players));
-    events.truncate(EVENTS_SHOWN);
+    events.dedup_by(|a, b| a.id == b.id);
+    events.truncate(EVENTS_USED);
 
+    let limit = std::sync::Arc::new(Semaphore::new(CONCURRENT_DOWNLOADS));
     let mut jobs = JoinSet::new();
     for e in events {
         let http = http.clone();
+        let limit = limit.clone();
         jobs.spawn(async move {
+            let _slot = limit.acquire_owned().await;
             let url = format!("{API}/tournaments/{}/standings", e.id);
             let standings: Result<Vec<LStanding>> = async {
                 http.get(&url)

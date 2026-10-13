@@ -34,7 +34,7 @@ import urllib.request
 
 FORMATS = ["vgc", "vgc-bo3", "bss"]
 CUTOFFS = [0, 1500, 1630, 1760]
-PAGES = ["/", "/builder", "/teams", "/tournaments", "/calc", "/speed", "/speed?mode=meta"]
+PAGES = ["/", "/builder", "/tournaments", "/tournaments?arch=rain", "/calc", "/speed", "/speed?mode=meta"]
 HREF = re.compile(r'href="(/[^"#]*)"')
 OPTION = re.compile(r'<option value="([^"]+)"')
 # Saved team names the test uses, so a visitor can spot someone else's.
@@ -263,7 +263,7 @@ def main():
     if args.burst:
         # Pages for every format and cutoff, so most need data nobody has loaded yet.
         urls = [f"/?fmt={f}&cut={c}" for f in FORMATS for c in CUTOFFS]
-        urls += ["/tournaments", "/teams?fmt=bss", "/calc?fmt=vgc-bo3"]
+        urls += ["/tournaments", "/tournaments?add=incin&arch=tailwind", "/calc?fmt=vgc-bo3"]
         gate = threading.Barrier(args.burst)
 
         def one(i):
