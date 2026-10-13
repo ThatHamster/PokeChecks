@@ -1,5 +1,8 @@
 // About: what PokeChecks is, the fan-app disclaimer, and the state of the saved data.
 
+import { useState } from 'react';
+
+import { adsEnabled, showAdPrivacyChoices, useAdState, watchSupportAd } from '../ads/ads';
 import { refresh, useData } from '../data/store';
 import { Ball, monthName } from './bits';
 
@@ -59,11 +62,66 @@ export function AboutScreen() {
         </div>
       </section>
 
+      {adsEnabled && <SupportPane />}
+
       <p className="disclaimer">
         PokeChecks is an unofficial fan app. It isn’t affiliated with, endorsed or supported by
         Nintendo, Creatures Inc., GAME FREAK or The Pokémon Company. Pokémon and its names are
         trademarks of their respective owners. Sprites and item icons come from Pokémon Showdown.
       </p>
     </main>
+  );
+}
+
+/**
+ * The apps' way to help: one optional video ad. The website has a Ko-fi tip pop-up instead,
+ * which the app stores don't allow inside apps.
+ */
+function SupportPane() {
+  const { privacyOptionsRequired } = useAdState();
+  const [stage, setStage] = useState<'ready' | 'playing' | 'thanks' | 'skipped' | 'unavailable'>('ready');
+
+  const watch = async () => {
+    setStage('playing');
+    try {
+      setStage((await watchSupportAd()) ? 'thanks' : 'skipped');
+    } catch {
+      setStage('unavailable');
+    }
+  };
+
+  return (
+    <section className="pane">
+      <div className="pane-head">
+        <h2>Support PokeChecks</h2>
+      </div>
+      <div className="pane-body stack">
+        {stage === 'thanks' ? (
+          <p className="thanks" role="status">
+            <span className="heart" aria-hidden>
+              ♥
+            </span>{' '}
+            Thank you! That helps keep the stats coming.
+          </p>
+        ) : (
+          <>
+            <p>PokeChecks is free. If it helps you, watching one short ad helps pay for the server that gathers the stats.</p>
+            <button className="go" disabled={stage === 'playing'} onClick={() => void watch()}>
+              {stage === 'playing' ? 'Loading the ad…' : '▶ Watch a short ad'}
+            </button>
+            <p className="hint" role="status">
+              {stage === 'skipped' && 'No worries: the ad was closed before the end. Try again any time.'}
+              {stage === 'unavailable' && 'Couldn’t load an ad just now. Check your connection, or try again later.'}
+              {(stage === 'ready' || stage === 'playing') && 'Ads are never personalized, and this one only plays when you ask.'}
+            </p>
+          </>
+        )}
+        {privacyOptionsRequired && (
+          <button className="show-all left" onClick={() => void showAdPrivacyChoices()}>
+            Ad privacy choices
+          </button>
+        )}
+      </div>
+    </section>
   );
 }

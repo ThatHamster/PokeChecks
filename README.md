@@ -229,7 +229,8 @@ So far it has:
   with its possible range, and marks speed ties and close calls. Trick Room, Tailwind and
   Icy Wind for either side, weather, stages, paralysis, Scarf and Unburden are one tap.
   The turn order maths is shared with the website (`pokechecks_core::speed`).
-- **About** (the "i" on the Usage screen), with the fan-app disclaimer.
+- **About** (the "i" on the Usage screen), with the fan-app disclaimer and "Support
+  PokeChecks" (see "Ads in the apps" below).
 
 The website's second speed view, one Pokémon against the top 80, isn't in the app yet.
 
@@ -265,6 +266,40 @@ splash stays up until the app has drawn its first screen, so there's no blank fl
 GitHub Actions builds a debug APK on every pull request (download it from the run's
 Artifacts to install on an Android phone) and an iOS Simulator build when the app or the
 Rust crates change.
+
+## Ads in the apps
+
+The Android and iOS apps are free and carry **non-personalized Google AdMob ads**
+([app/src/ads/ads.ts](app/src/ads/ads.ts)). The website has none.
+
+- **Usage banner:** one adaptive banner, just above the tab bar, on the Usage screen only.
+  Never on the builder, calc, speed or tournament screens, which people use mid-match.
+- **Optional video:** "Support PokeChecks" on the About screen offers "Watch a short ad"
+  in place of the website's Ko-fi pop-up, since the app stores don't allow outside
+  payment pages in apps.
+- **Consent:** Google's consent form runs at start-up where required (EEA, UK,
+  Switzerland), nothing is requested until it allows ads, and "Ad privacy choices" on
+  About reopens it. Every request sets `npa` (non-personalized), so iOS needs no App
+  Tracking Transparency prompt.
+
+Until real ids are supplied, the apps show **Google's test ads**, which are safe to tap.
+Don't tap real ads in your own builds: it can get the AdMob account suspended.
+
+**Switching to real ads** (after creating the AdMob account and adding both apps):
+1. Replace Google's test **app ids** with yours: `com.google.android.gms.ads.APPLICATION_ID`
+   in `app/android/app/src/main/AndroidManifest.xml`, and `GADApplicationIdentifier` in
+   `app/ios/App/App/Info.plist`.
+2. Set the **ad unit ids** as GitHub repository variables (Settings → Secrets and variables
+   → Actions → Variables; they ship inside the app, so they aren't secrets):
+   `VITE_ADMOB_ANDROID_BANNER`, `VITE_ADMOB_ANDROID_REWARDED`, `VITE_ADMOB_IOS_BANNER`,
+   `VITE_ADMOB_IOS_REWARDED`.
+3. Serve `app-ads.txt` from the website with the line AdMob gives you
+   (`google.com, pub-…, DIRECT, f08c47fec0942fa0`), and list
+   `https://pokechecks.onrender.com` as the developer website in both store listings so
+   AdMob can find it.
+4. In the stores: tick **Contains ads** on Google Play, and declare advertising data
+   (device ID, used for third-party advertising, not for tracking) in Play's Data safety
+   form and Apple's privacy labels.
 
 ## Test
 
